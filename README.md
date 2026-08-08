@@ -1,0 +1,75 @@
+# NextUp
+
+A modern streaming dashboard that aggregates your library and resolves video streams via AIOStreams.
+
+## NEXTUP VIDEO 3D Store
+
+Authenticated desktop users can choose **Enter Video Store** from the header to open a walkable, nostalgic rental-store view of the same NextUp catalog. The store does not replace Firebase, library state, episode history, details, or playback; it is a code-split presentation layer over those existing systems.
+
+The MVP targets current desktop browsers with WebGL 2 and a viewport at least 960px wide.
+
+| Control | Action |
+| --- | --- |
+| WASD | Walk |
+| Mouse | Look around |
+| Shift | Move faster |
+| E / left click | Pick up a highlighted case |
+| Right click / Esc | Return a held case |
+| F | Open the in-store title finder |
+| M | Open the store map |
+| Esc | Release the mouse and pause |
+
+The 3D implementation lives in `src/store/`. Static case bodies are instanced, while each poster uses its own artwork-capable front surface. Shelf posters are requested at TMDB `w185`, held cases upgrade to `w500`, and a reference-counted texture cache explicitly disposes unused GPU textures. Movement uses authored static collision boxes rather than a physics engine. Video playback suspends the store render loop and ambience until the player closes.
+
+Store ambience is generated with the Web Audio API after the user enters, so no copyrighted audio assets are required. The sound control in the store header can mute it at any time.
+
+## Prerequisites
+
+- Node.js (v18+)
+- A provisioned Firebase project (for authentication and database)
+- TMDB API Key
+- AIOStreams service endpoint
+
+## Environment Variables
+
+Copy `.env.example` to `.env` or set these in your deployment environment:
+
+```env
+VITE_TMDB_API_KEY=your_tmdb_key
+VITE_AIOSTREAMS_BASE_URL=https://your-aiostreams-instance.com
+```
+
+You must also configure Firebase credentials. The deployment process requires a `firebase-applet-config.json` file.
+
+## Setup & Development
+
+```sh
+npm install
+npm run dev
+```
+
+The application will start in development mode on port 3000.
+
+## Production Build
+
+To build the static SPA and the Node server entry:
+
+```sh
+npm run build
+npm run start
+```
+
+Run the full verification suite with:
+
+```sh
+npm run lint
+npm test
+npm run build
+```
+
+## Deployment
+
+The application is structured to be deployed as a static Single Page Application (SPA).
+The `server.ts` file serves the production SPA and provides the existing `/api/debrid/stream` proxy used by playback. 
+
+For GitHub Pages, ensure you build the static assets (`npm run build`) and configure router fallbacks for a client-side single page app. A Node server is not strictly required if you host the static files securely.

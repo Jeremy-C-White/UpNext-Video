@@ -1,0 +1,6 @@
+{
+  "name": "NextUp",
+  "description": "Your TV Tracker and Library",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
