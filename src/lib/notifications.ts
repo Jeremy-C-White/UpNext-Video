@@ -9,8 +9,8 @@ export function isNotificationSupported(): boolean {
 
 export function isIOS(): boolean {
   if (typeof window === "undefined") return false;
-  const ua = window.navigator.userAgent;
-  return /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const { userAgent, platform, maxTouchPoints } = window.navigator;
+  return /iPad|iPhone|iPod/.test(userAgent) || (platform === 'MacIntel' && maxTouchPoints > 1);
 }
 
 export function isStandalonePWA(): boolean {
@@ -81,8 +81,8 @@ export async function sendLocalNotification(title: string, body: string, icon?: 
 
   try {
     // Try using Service Worker registration if available for best mobile/iOS support
-    if ("serviceWorker" in navigator) {
-      const reg = await navigator.serviceWorker.ready;
+    if ("serviceWorker" in window.navigator) {
+      const reg = await window.navigator.serviceWorker.ready;
       if (reg && reg.showNotification) {
         await reg.showNotification(title, {
           body,
