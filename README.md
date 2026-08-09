@@ -30,9 +30,15 @@ Store ambience is generated with the Web Audio API after the user enters, so no 
 - TMDB API Key
 - AIOStreams service endpoint
 
-## Environment Variables
+## Browser Configuration
 
-Copy `.env.example` to `.env` or set these in your deployment environment:
+For public static deployments, open **Settings** in NextUp and enter the TMDB API key and AIOStreams/Torrentio manifest URL there. These values are stored only in that browser's local storage and are not synced to Firebase or GitHub.
+
+The GitHub Pages workflow intentionally does not inject either value into the build. Vite environment variables become part of the public JavaScript bundle and must not contain a private, credential-bearing stream-provider URL.
+
+## Environment Variables (private/self-hosted deployments)
+
+For local development or a controlled self-hosted deployment, copy `.env.example` to `.env`:
 
 ```env
 VITE_TMDB_API_KEY=your_tmdb_key
@@ -72,4 +78,4 @@ npm run build
 The application is structured to be deployed as a static Single Page Application (SPA).
 The `server.ts` file serves the production SPA and provides the existing `/api/debrid/stream` proxy used by playback. 
 
-For GitHub Pages, ensure you build the static assets (`npm run build`) and configure router fallbacks for a client-side single page app. A Node server is not strictly required if you host the static files securely.
+On GitHub Pages, the app falls back to requesting the configured stream provider directly because Pages cannot run the Node proxy. The provider must permit browser requests with appropriate CORS headers. Use the Node deployment when a provider requires server-side proxying.

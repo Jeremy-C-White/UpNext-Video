@@ -837,16 +837,26 @@ async function fetchBestStreamImpl(
   }
 
   let response: Response;
+  const requestInit: RequestInit = {
+    method: "GET",
+    headers: {
+      Accept: "application/json"
+    },
+    cache: "no-store",
+    signal: controller.signal
+  };
 
   try {
-    response = await fetch(proxyUrl, {
-      method: "GET",
-      headers: {
-        Accept: "application/json"
-      },
-      cache: "no-store",
-      signal: controller.signal
-    });
+    try {
+      response = await fetch(proxyUrl, requestInit);
+      if (response.status === 404 || response.status === 405) {
+        response = await fetch(requestUrl, requestInit);
+      }
+    } catch (proxyError) {
+      if (controller.signal.aborted) throw proxyError;
+      // Static hosts such as GitHub Pages do not provide the local proxy.
+      response = await fetch(requestUrl, requestInit);
+    }
   } catch (error: unknown) {
     if (
       error instanceof Error &&
@@ -857,7 +867,7 @@ async function fetchBestStreamImpl(
       );
     }
     throw new Error(
-      "Unable to reach stream provider proxy. Please check your configured URL in Settings."
+      "Unable to reach the stream provider. Please check its URL and browser access settings."
     );
   } finally {
     window.clearTimeout(timeoutId);

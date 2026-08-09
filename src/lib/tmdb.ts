@@ -6,7 +6,26 @@ function setCached<T>(key: string, data: T, ttl = 60) { apiSetCached<T>("tmdb", 
 import { fetchJson } from "./httpClient";
 
 const BASE_URL = "https://api.themoviedb.org/3";
-const API_KEY = (import.meta as any).env.VITE_TMDB_API_KEY || (import.meta as any).env.TMDB_API_KEY;
+export const TMDB_API_KEY_STORAGE_KEY = "nextup_tmdb_api_key";
+
+export function getTmdbApiKey(): string {
+  if (typeof window !== "undefined") {
+    try {
+      const storedKey = window.localStorage
+        .getItem(TMDB_API_KEY_STORAGE_KEY)
+        ?.trim();
+      if (storedKey) return storedKey;
+    } catch {
+      // Storage can be unavailable in hardened/private browser contexts.
+    }
+  }
+
+  return (
+    (import.meta as any).env?.VITE_TMDB_API_KEY ||
+    (import.meta as any).env?.TMDB_API_KEY ||
+    ""
+  ).trim();
+}
 
 const TMDB_GENRE_NAMES: Record<number, string> = {
   12: "Adventure",
@@ -47,8 +66,13 @@ function mapTMDBGenres(item: any): string[] {
     : [];
 }
 export async function fetchTMDB(endpoint: string, params: Record<string, string> = {}, signal?: AbortSignal) {
+  const apiKey = getTmdbApiKey();
+  if (!apiKey) {
+    throw new Error("TMDB is not configured. Add your TMDB API key in Settings.");
+  }
+
   const url = new URL(`${BASE_URL}${endpoint}`);
-  url.searchParams.append('api_key', API_KEY);
+  url.searchParams.append('api_key', apiKey);
   Object.entries(params).forEach(([k, v]) => url.searchParams.append(k, v));
   
   return fetchJson<any>(url.toString(), { signal, concurrencyGroup: "tmdb", timeoutMs: 15000, retries: 2 });

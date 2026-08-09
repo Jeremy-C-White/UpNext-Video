@@ -63,6 +63,23 @@ describe('AIOStreams Network layer', () => {
     expect(requestUrl).toContain(encodeURIComponent("https://my.aio.streams/stream/series/tt1234567:1:1.json"));
   });
 
+  test('falls back to the provider directly when a static host has no proxy route', async () => {
+    fetchSpy
+      .mockResolvedValueOnce({ ok: false, status: 404 })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => MOCK_AIO_RESPONSE,
+      });
+
+    await getBestTorrentioStream("tt1234567", 1, 1, "series", undefined, true);
+
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[1][0]).toBe(
+      "https://my.aio.streams/stream/series/tt1234567:1:1.json"
+    );
+  });
+
   test('backend 504 produces the timeout message', async () => {
     fetchSpy.mockResolvedValueOnce({
       ok: false,

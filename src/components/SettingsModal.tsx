@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { updatePassword, EmailAuthProvider, reauthenticateWithCredential } from 'firebase/auth';
 import { UserShow } from '../types';
-import { Download, Upload, X, CheckCircle2, AlertCircle, Bell, BellRing, Smartphone, Server } from 'lucide-react';
+import { Download, Upload, X, CheckCircle2, AlertCircle, Bell, BellRing, Smartphone, Server, KeyRound } from 'lucide-react';
 import { auth, db } from '../firebase';
 import { writeBatch, doc } from 'firebase/firestore';
 import { 
@@ -13,7 +13,7 @@ import {
   isIOS, 
   isStandalonePWA 
 } from '../lib/notifications';
-import { getAioStreamsBaseUrl } from '../lib/debrid';
+import { TMDB_API_KEY_STORAGE_KEY } from '../lib/tmdb';
 
 export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onClose: () => void, shows: UserShow[] }) {
   const [currentPin, setCurrentPin] = useState('');
@@ -25,6 +25,10 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
 
   const [aiostreamsUrl, setAiostreamsUrl] = useState('');
   const [aiostreamsSaved, setAiostreamsSaved] = useState(false);
+  const [tmdbKey, setTmdbKey] = useState('');
+  const [tmdbSaved, setTmdbSaved] = useState(false);
+  const [tmdbSaving, setTmdbSaving] = useState(false);
+  const [tmdbError, setTmdbError] = useState('');
 
   const [notifPermission, setNotifPermission] = useState<NotificationPermission | "unsupported">('default');
   const [notifEnabled, setNotifEnabled] = useState(false);
@@ -37,6 +41,8 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
     if (typeof window !== 'undefined' && isOpen) {
       setNotifPermission(getNotificationPermissionStatus());
       setNotifEnabled(areNotificationsEnabled());
+      setTmdbKey(localStorage.getItem(TMDB_API_KEY_STORAGE_KEY) || '');
+      setTmdbError('');
       
       const currentUrl = localStorage.getItem("aiostreams_base_url") || "";
       const envUrl = (import.meta as any).env?.VITE_AIOSTREAMS_BASE_URL?.trim();
@@ -57,6 +63,41 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
     }
   }, [isOpen]);
 
+  const handleSaveTmdbKey = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (typeof window === 'undefined') return;
+
+    const trimmed = tmdbKey.trim();
+    setTmdbError('');
+
+    if (!trimmed) {
+      localStorage.removeItem(TMDB_API_KEY_STORAGE_KEY);
+      setTmdbSaved(true);
+      setTimeout(() => setTmdbSaved(false), 2500);
+      return;
+    }
+
+    setTmdbSaving(true);
+    try {
+      const response = await fetch(
+        `https://api.themoviedb.org/3/configuration?api_key=${encodeURIComponent(trimmed)}`,
+        { headers: { Accept: 'application/json' } }
+      );
+      if (!response.ok) {
+        throw new Error(response.status === 401 ? 'TMDB rejected this API key.' : `TMDB validation failed (HTTP ${response.status}).`);
+      }
+
+      localStorage.setItem(TMDB_API_KEY_STORAGE_KEY, trimmed);
+      setTmdbKey(trimmed);
+      setTmdbSaved(true);
+      setTimeout(() => setTmdbSaved(false), 2500);
+    } catch (err: any) {
+      setTmdbError(err?.message || 'Unable to validate the TMDB API key.');
+    } finally {
+      setTmdbSaving(false);
+    }
+  };
+
   const handleSaveAiostreamsUrl = async (e: React.FormEvent) => {
     e.preventDefault();
     if (typeof window !== 'undefined') {
@@ -70,7 +111,17 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
         
         try {
           const proxyUrl = `/api/debrid/stream?url=${encodeURIComponent(manifestUrl)}`;
-          const resp = await fetch(proxyUrl);
+          let resp: Response;
+
+          try {
+            resp = await fetch(proxyUrl);
+            if (resp.status === 404 || resp.status === 405) {
+              resp = await fetch(manifestUrl, { headers: { Accept: 'application/json' } });
+            }
+          } catch {
+            // Static hosts such as GitHub Pages do not provide the local proxy.
+            resp = await fetch(manifestUrl, { headers: { Accept: 'application/json' } });
+          }
           
           if (!resp.ok) {
             throw new Error(`Provider manifest unreachable (HTTP ${resp.status})`);
@@ -305,6 +356,66 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
             {loading ? "Updating..." : "Update PIN"}
           </button>
         </form>
+
+        <div className="border-t border-slate-200 dark:border-slate-800 pt-8 mt-6">
+          <div className="flex items-center gap-2 mb-2">
+            <KeyRound className="w-5 h-5 text-orange-500" />
+            <h3 className="text-xl font-bold text-slate-900 dark:text-white">TMDB Catalog</h3>
+          </div>
+          <p className="text-slate-600 dark:text-slate-400 text-sm mb-3">
+            Enter your TMDB v3 API key to load discovery, metadata, and poster artwork. The key stays in this browser and is never synced to GitHub or Firebase.
+          </p>
+          <form onSubmit={handleSaveTmdbKey} className="space-y-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-500 dark:text-slate-400 mb-1">
+                TMDB API Key
+              </label>
+              <input
+                type="password"
+                value={tmdbKey}
+                onChange={(e) => setTmdbKey(e.target.value)}
+                placeholder="Enter your TMDB v3 API key"
+                autoComplete="off"
+                spellCheck={false}
+                className="w-full bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-xl py-2.5 px-3.5 text-slate-900 dark:text-white text-xs font-mono focus:outline-none focus:border-orange-500 focus:ring-1 focus:ring-orange-500 transition-all"
+              />
+            </div>
+            {tmdbSaved && (
+              <p className="text-emerald-500 text-xs flex items-center gap-1 font-medium">
+                <CheckCircle2 className="w-3.5 h-3.5" /> TMDB key saved. Reload NextUp to refresh the catalog.
+              </p>
+            )}
+            {tmdbError && (
+              <p className="text-red-500 text-xs flex items-center gap-1 font-medium">
+                <X className="w-3.5 h-3.5" /> {tmdbError}
+              </p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="submit"
+                disabled={tmdbSaving}
+                className="flex-1 bg-orange-500 hover:bg-orange-600 disabled:bg-orange-500/50 text-white font-bold py-2.5 px-4 rounded-xl text-xs transition-all shadow-md shadow-orange-500/20"
+              >
+                {tmdbSaving ? 'Validating...' : 'Save TMDB Key'}
+              </button>
+              {tmdbKey && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTmdbKey('');
+                    localStorage.removeItem(TMDB_API_KEY_STORAGE_KEY);
+                    setTmdbError('');
+                    setTmdbSaved(true);
+                    setTimeout(() => setTmdbSaved(false), 2500);
+                  }}
+                  className="px-3 py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition-colors"
+                >
+                  Remove Key
+                </button>
+              )}
+            </div>
+          </form>
+        </div>
 
         <div className="border-t border-slate-200 dark:border-slate-800 pt-8 mt-6">
           <div className="flex items-center gap-2 mb-2">
