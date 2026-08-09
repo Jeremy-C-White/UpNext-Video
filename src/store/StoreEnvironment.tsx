@@ -3,7 +3,7 @@ import { RoundedBox } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { ISLAND_CENTERS, ISLAND_HALF_DEPTH, sectionHeight, sectionWidth, STORE_SECTIONS } from "./layout";
+import { DVD_CASE_WIDTH, ISLAND_CENTERS, ISLAND_HALF_DEPTH, sectionHeight, sectionWidth, STORE_SECTIONS } from "./layout";
 import type { StoreSectionDefinition } from "./types";
 
 function createLabelTexture(label: string, accent: string, subtitle?: string) {
@@ -362,6 +362,13 @@ function ShelfSpines({ section, width }: { section: StoreSectionDefinition; widt
   const printGeometry = useMemo(() => new THREE.PlaneGeometry(0.014, 0.17), []);
   const printTexture = useMemo(() => createSpinePrintTexture(), []);
   const palette = useMemo(() => ["#1d4c8b", "#bd4851", "#e8dcae", "#39734f", "#d69b3b", "#765489", "#333946", "#ece7d4", "#6f91b6"].map((color) => new THREE.Color(color)), []);
+  const faceOutSlotXs = useMemo(
+    () => Array.from(
+      { length: section.columns },
+      (_, displayColumn) => (displayColumn - (section.columns - 1) / 2) * section.columnGap,
+    ),
+    [section.columnGap, section.columns],
+  );
   useLayoutEffect(() => {
     if (!ref.current || !printRef.current) return;
     const matrix = new THREE.Matrix4();
@@ -378,7 +385,11 @@ function ShelfSpines({ section, width }: { section: StoreSectionDefinition; widt
         };
         const x = -width / 2 + 0.07 + column * ((width - 0.14) / Math.max(1, countPerRow - 1));
         const baseY = ((section.rows - 1) / 2 - row) * section.rowGap;
-        const isGap = hash(1) < 0.035 || (column + row * 7) % 89 === 0;
+        const faceOutSlot = faceOutSlotXs.some((slotX) => Math.abs(x - slotX) < DVD_CASE_WIDTH * 0.58);
+        // Leave genuine space behind each interactive face-out case. When a
+        // rental is picked up, its slot now reads as empty instead of revealing
+        // a decorative spine that looks like the case never left the shelf.
+        const isGap = faceOutSlot || hash(1) < 0.035 || (column + row * 7) % 89 === 0;
         const heightScale = 0.91 + hash(2) * 0.105;
         const widthScale = isGap ? 0.035 : 0.72 + hash(3) * 0.78;
         const depthScale = isGap ? 0.05 : 0.78 + hash(4) * 0.62;
@@ -409,7 +420,7 @@ function ShelfSpines({ section, width }: { section: StoreSectionDefinition; widt
     printRef.current.instanceMatrix.needsUpdate = true;
     if (printRef.current.instanceColor) printRef.current.instanceColor.needsUpdate = true;
     printRef.current.computeBoundingSphere();
-  }, [countPerRow, palette, section, width]);
+  }, [countPerRow, faceOutSlotXs, palette, section, width]);
   useEffect(() => () => {
     geometry.dispose();
     printGeometry.dispose();

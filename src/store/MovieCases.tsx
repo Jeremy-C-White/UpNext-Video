@@ -35,18 +35,6 @@ function createScratchNormalTexture() {
 
 const scratchNormalTexture = createScratchNormalTexture();
 
-const applyHeldPosterPrintCorrection: THREE.Material["onBeforeCompile"] = (shader) => {
-  shader.fragmentShader = shader.fragmentShader.replace("#include <map_fragment>", `
-#ifdef USE_MAP
-  vec4 sampledDiffuseColor = texture2D( map, vMapUv );
-  float printGray = dot(sampledDiffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
-  float printGrain = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453) - 0.5;
-  sampledDiffuseColor.rgb = mix(sampledDiffuseColor.rgb, vec3(printGray), 0.04) * 0.96 + 0.008 + printGrain * 0.006;
-  diffuseColor *= sampledDiffuseColor;
-#endif
-  `);
-};
-
 function createPosterArrayMaterial(texture: THREE.DataArrayTexture) {
   return new THREE.ShaderMaterial({
     glslVersion: THREE.GLSL3,
@@ -403,17 +391,11 @@ export function HeldCase({
       </mesh>
       <mesh position={[0, 0, 0.0086]} renderOrder={21}>
         <planeGeometry args={[0.128, 0.188]} />
-        <meshStandardMaterial
-          key={texture.uuid}
+        <meshBasicMaterial
+          key={`${item?.id || "empty"}:${texture.uuid}`}
           map={texture}
-          color="#fffdf7"
-          roughness={0.72}
-          metalness={0}
-          emissive="#ffffff"
-          emissiveMap={texture}
-          emissiveIntensity={0.13}
-          onBeforeCompile={applyHeldPosterPrintCorrection}
-          customProgramCacheKey={() => "nextup-held-poster-print-v1"}
+          color="#ffffff"
+          toneMapped={false}
         />
       </mesh>
       <mesh position={[0, 0, 0.0091]} renderOrder={22}>
@@ -520,18 +502,25 @@ function createDisplayCopies(items: StoreMedia[]) {
 
 export function MovieCases({ items, hoveredId, selectedId }: { items: StoreMedia[]; hoveredId: string | null; selectedId: string | null }) {
   const renderItems = useMemo(() => createDisplayCopies(items), [items]);
+  // Removing the selected title from every instanced batch guarantees a real
+  // empty shelf slot. A near-zero instance can still leave depth/color debris
+  // on some GPU drivers, especially when the same title has display copies.
+  const visibleItems = useMemo(
+    () => selectedId ? renderItems.filter((item) => item.id !== selectedId) : renderItems,
+    [renderItems, selectedId],
+  );
   const batches = useMemo(() => {
     const next: StoreMedia[][] = [];
-    for (let index = 0; index < renderItems.length; index += MAX_POSTERS_PER_BATCH) next.push(renderItems.slice(index, index + MAX_POSTERS_PER_BATCH));
+    for (let index = 0; index < visibleItems.length; index += MAX_POSTERS_PER_BATCH) next.push(visibleItems.slice(index, index + MAX_POSTERS_PER_BATCH));
     return next;
-  }, [renderItems]);
+  }, [visibleItems]);
   return (
     <group name="poster-cases">
-      <CaseBodies items={renderItems} hoveredId={hoveredId} selectedId={selectedId} />
+      <CaseBodies items={visibleItems} hoveredId={hoveredId} selectedId={null} />
       {batches.map((batch, index) => (
-        <PosterBatch key={`${index}:${batch[0]?.id || "empty"}`} items={batch} hoveredId={hoveredId} selectedId={selectedId} />
+        <PosterBatch key={`${index}:${batch[0]?.id || "empty"}`} items={batch} hoveredId={hoveredId} selectedId={null} />
       ))}
-      <CaseClearSleeves items={renderItems} hoveredId={hoveredId} selectedId={selectedId} />
+      <CaseClearSleeves items={visibleItems} hoveredId={hoveredId} selectedId={null} />
     </group>
   );
 }
