@@ -1,4 +1,4 @@
-import { STORE_BOUNDS } from "./layout";
+import { sectionWidth, STORE_BOUNDS, STORE_SECTIONS } from "./layout";
 
 export interface CollisionBox {
   minX: number;
@@ -7,18 +7,35 @@ export interface CollisionBox {
   maxZ: number;
 }
 
+function boxFromCenter(x: number, z: number, width: number, depth: number): CollisionBox {
+  return { minX: x - width / 2, maxX: x + width / 2, minZ: z - depth / 2, maxZ: z + depth / 2 };
+}
+
+function sectionCollider(id: string) {
+  const section = STORE_SECTIONS.find((candidate) => candidate.id === id)!;
+  const width = sectionWidth(section) + 0.08;
+  const depth = 0.28;
+  const cos = Math.abs(Math.cos(section.rotationY));
+  const sin = Math.abs(Math.sin(section.rotationY));
+  return boxFromCenter(
+    section.center[0],
+    section.center[2],
+    width * cos + depth * sin,
+    width * sin + depth * cos,
+  );
+}
+
 export const STATIC_COLLIDERS: CollisionBox[] = [
-  // Back-to-back central shelving islands.
-  { minX: -7.35, maxX: -5.75, minZ: -9.2, maxZ: -1.25 },
-  { minX: 5.75, maxX: 7.35, minZ: -9.2, maxZ: -1.25 },
-  // Checkout and snack fixtures.
-  { minX: 9.2, maxX: 16.4, minZ: 11.1, maxZ: 17.8 },
-  { minX: -16.2, maxX: -10.25, minZ: 11.6, maxZ: 17.3 },
-  // Reserved-for-you hold shelf and two freestanding promo displays.
-  { minX: -13.3, maxX: -9.0, minZ: 18.05, maxZ: 19.35 },
-  { minX: -3.7, maxX: 3.7, minZ: 3.55, maxZ: 4.9 },
-  { minX: 10.0, maxX: 12.8, minZ: 5.0, maxZ: 6.0 },
-  { minX: -1.5, maxX: 1.5, minZ: -13.8, maxZ: -12.4 },
+  sectionCollider("comedy"),
+  sectionCollider("horror"),
+  sectionCollider("sci-fi"),
+  sectionCollider("television"),
+  sectionCollider("reserved"),
+  sectionCollider("new-releases"),
+  boxFromCenter(13.1, 14.6, 4.3, 1.08),
+  boxFromCenter(-13.2, 14.4, 3.5, 0.72),
+  boxFromCenter(11.4, 5.5, 1.1, 0.38),
+  boxFromCenter(0, -13.1, 1.1, 0.38),
 ];
 
 export function circleIntersectsBox(x: number, z: number, radius: number, box: CollisionBox) {

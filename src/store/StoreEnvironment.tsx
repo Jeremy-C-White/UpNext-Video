@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef } from "react";
-import { RoundedBox, Sparkles } from "@react-three/drei";
+import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
+import { RoundedBox } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { sectionHeight, sectionWidth, STORE_SECTIONS } from "./layout";
@@ -38,9 +38,10 @@ function createLabelTexture(label: string, accent: string, subtitle?: string) {
 
 function createSurfaceTexture(kind: "tile" | "carpet" | "ceiling" | "wall", roughness = false) {
   const canvas = document.createElement("canvas");
-  canvas.width = 512;
-  canvas.height = 512;
+  canvas.width = 1024;
+  canvas.height = 1024;
   const context = canvas.getContext("2d")!;
+  context.scale(2, 2);
   let seed = 9187;
   const random = () => {
     seed = (seed * 1664525 + 1013904223) >>> 0;
@@ -141,8 +142,8 @@ function FloorSurfaces() {
   const carpetColor = useMemo(() => createSurfaceTexture("carpet"), []);
   const carpetBump = useMemo(() => createSurfaceTexture("carpet", true), []);
   useEffect(() => {
-    tileColor.repeat.set(9, 12);
-    tileRoughness.repeat.set(9, 12);
+    tileColor.repeat.set(18, 24);
+    tileRoughness.repeat.set(18, 24);
     carpetColor.repeat.set(4, 12);
     carpetBump.repeat.set(4, 12);
     return () => {
@@ -160,6 +161,8 @@ function FloorSurfaces() {
         <meshPhysicalMaterial
           map={tileColor}
           roughnessMap={tileRoughness}
+          bumpMap={tileRoughness}
+          bumpScale={0.0035}
           roughness={0.34}
           metalness={0.02}
           clearcoat={0.34}
@@ -185,7 +188,7 @@ function Baseboards() {
   return (
     <group name="baseboards">
       {pieces.map((piece, index) => (
-        <RoundedBox key={index} args={piece.size} position={piece.position} radius={0.025} smoothness={2} receiveShadow>
+        <RoundedBox key={index} args={piece.size} position={piece.position} radius={0.002} smoothness={4} receiveShadow>
           <meshStandardMaterial color="#173b73" roughness={0.42} metalness={0.06} />
         </RoundedBox>
       ))}
@@ -197,23 +200,23 @@ function CeilingSurface() {
   const colorMap = useMemo(() => createSurfaceTexture("ceiling"), []);
   const roughnessMap = useMemo(() => createSurfaceTexture("ceiling", true), []);
   useEffect(() => {
-    colorMap.repeat.set(9, 12);
-    roughnessMap.repeat.set(9, 12);
+    colorMap.repeat.set(18, 24);
+    roughnessMap.repeat.set(18, 24);
     return () => {
       colorMap.dispose();
       roughnessMap.dispose();
     };
   }, [colorMap, roughnessMap]);
   return (
-    <mesh position={[0, 5.7, 0]} receiveShadow>
+    <mesh position={[0, 3.55, 0]} receiveShadow>
       <boxGeometry args={[36, 0.24, 48]} />
       <meshStandardMaterial
         map={colorMap}
         roughnessMap={roughnessMap}
+        bumpMap={roughnessMap}
+        bumpScale={0.0012}
         roughness={0.86}
         color="#d8d2c5"
-        emissive="#aaa392"
-        emissiveIntensity={0.15}
       />
     </mesh>
   );
@@ -223,26 +226,26 @@ function StoreWalls() {
   const colorMap = useMemo(() => createSurfaceTexture("wall"), []);
   const roughnessMap = useMemo(() => createSurfaceTexture("wall", true), []);
   useEffect(() => {
-    colorMap.repeat.set(5, 2);
-    roughnessMap.repeat.set(5, 2);
+    colorMap.repeat.set(10, 4);
+    roughnessMap.repeat.set(10, 4);
     return () => {
       colorMap.dispose();
       roughnessMap.dispose();
     };
   }, [colorMap, roughnessMap]);
   const pieces: Array<{ position: [number, number, number]; size: [number, number, number] }> = [
-    { position: [0, 2.85, -23.25], size: [36.5, 5.7, 0.42] },
-    { position: [-17.85, 2.85, 0], size: [0.42, 5.7, 46.5] },
-    { position: [17.85, 2.85, 0], size: [0.42, 5.7, 46.5] },
-    { position: [-11.6, 2.85, 23.25], size: [12.7, 5.7, 0.42] },
-    { position: [11.6, 2.85, 23.25], size: [12.7, 5.7, 0.42] },
+    { position: [0, 1.75, -23.25], size: [36.5, 3.5, 0.42] },
+    { position: [-17.85, 1.75, 0], size: [0.42, 3.5, 46.5] },
+    { position: [17.85, 1.75, 0], size: [0.42, 3.5, 46.5] },
+    { position: [-11.6, 1.75, 23.25], size: [12.7, 3.5, 0.42] },
+    { position: [11.6, 1.75, 23.25], size: [12.7, 3.5, 0.42] },
   ];
   return (
     <group name="painted-store-walls">
       {pieces.map((piece, index) => (
         <mesh key={index} position={piece.position} receiveShadow>
           <boxGeometry args={piece.size} />
-          <meshStandardMaterial map={colorMap} roughnessMap={roughnessMap} color="#d1c9b8" roughness={0.82} />
+          <meshStandardMaterial map={colorMap} roughnessMap={roughnessMap} bumpMap={roughnessMap} bumpScale={0.0008} color="#d1c9b8" roughness={0.82} />
         </mesh>
       ))}
     </group>
@@ -251,16 +254,54 @@ function StoreWalls() {
 
 function ShelfTalker({ accent, width }: { accent: string; width: number }) {
   return (
-    <group position={[Math.min(width * 0.2, 1.3), -0.37, 0.4]} rotation={[0.035, 0, -0.02]}>
+    <group position={[Math.min(width * 0.2, 1.3), -0.13, 0.145]} rotation={[0.035, 0, -0.02]}>
       <mesh castShadow>
-        <planeGeometry args={[0.78, 0.46, 4, 2]} />
+        <planeGeometry args={[0.16, 0.09, 4, 2]} />
         <meshStandardMaterial color="#eee4c8" roughness={0.86} side={THREE.DoubleSide} />
       </mesh>
-      <mesh position={[0, 0.04, 0.006]}>
-        <planeGeometry args={[0.6, 0.07]} />
+      <mesh position={[0, 0.01, 0.001]}>
+        <planeGeometry args={[0.125, 0.014]} />
         <meshStandardMaterial color={accent} roughness={0.7} />
       </mesh>
     </group>
+  );
+}
+
+function ShelfSpines({ section, width }: { section: StoreSectionDefinition; width: number }) {
+  const countPerRow = Math.max(1, Math.floor((width - 0.12) / 0.022));
+  const count = countPerRow * section.rows;
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const geometry = useMemo(() => new THREE.BoxGeometry(0.016, 0.184, 0.013), []);
+  const palette = useMemo(() => ["#152b52", "#9f2731", "#d6cba8", "#263b26", "#bb8732", "#4a345f", "#1c1d22"].map((color) => new THREE.Color(color)), []);
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3(1, 1, 1);
+    const euler = new THREE.Euler();
+    for (let row = 0; row < section.rows; row += 1) {
+      for (let column = 0; column < countPerRow; column += 1) {
+        const index = row * countPerRow + column;
+        const x = -width / 2 + 0.07 + column * ((width - 0.14) / Math.max(1, countPerRow - 1));
+        const y = ((section.rows - 1) / 2 - row) * section.rowGap;
+        position.set(x, y, 0.045 + ((index * 17) % 7) * 0.0005);
+        euler.set(0, ((index * 13) % 9 - 4) * 0.002, ((index * 29) % 7 - 3) * 0.002);
+        quaternion.setFromEuler(euler);
+        matrix.compose(position, quaternion, scale);
+        ref.current.setMatrixAt(index, matrix);
+        ref.current.setColorAt(index, palette[(index * 11 + row) % palette.length]);
+      }
+    }
+    ref.current.instanceMatrix.needsUpdate = true;
+    if (ref.current.instanceColor) ref.current.instanceColor.needsUpdate = true;
+    ref.current.computeBoundingSphere();
+  }, [countPerRow, palette, section, width]);
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return (
+    <instancedMesh ref={ref} args={[geometry, undefined, count]} castShadow receiveShadow>
+      <meshStandardMaterial vertexColors roughness={0.64} metalness={0.01} />
+    </instancedMesh>
   );
 }
 
@@ -269,19 +310,20 @@ function ShelfFixture({ section }: { section: StoreSectionDefinition }) {
   const height = sectionHeight(section);
   return (
     <group position={section.center} rotation={[0, section.rotationY, 0]} name={`fixture-${section.id}`}>
-      <RoundedBox args={[width, height, 0.34]} position={[0, 0, -0.24]} radius={0.045} smoothness={2} castShadow receiveShadow>
+      <RoundedBox args={[width, height, 0.055]} position={[0, 0, -0.045]} radius={0.003} smoothness={4} castShadow receiveShadow>
         <meshStandardMaterial color="#173c86" roughness={0.52} metalness={0.08} />
       </RoundedBox>
+      <ShelfSpines section={section} width={width} />
       {Array.from({ length: section.rows + 1 }, (_, index) => {
         const y = (section.rows / 2 - index) * section.rowGap - 0.02;
         return (
           <RoundedBox
             key={index}
-            args={[width + 0.16, 0.075, 0.62]}
-            position={[0, y - (index % 2 ? 0.004 : 0), 0.04]}
+            args={[width + 0.08, 0.025, 0.24]}
+            position={[0, y - (index % 2 ? 0.001 : 0), 0.035]}
             rotation={[0, 0, (index - section.rows / 2) * 0.0015]}
-            radius={0.018}
-            smoothness={2}
+            radius={0.002}
+            smoothness={4}
             castShadow
             receiveShadow
           >
@@ -289,19 +331,19 @@ function ShelfFixture({ section }: { section: StoreSectionDefinition }) {
           </RoundedBox>
         );
       })}
-      <RoundedBox args={[0.13, height + 0.2, 0.58]} position={[-width / 2 - 0.07, 0, -0.02]} radius={0.025} smoothness={2} castShadow>
+      <RoundedBox args={[0.045, height + 0.06, 0.23]} position={[-width / 2 - 0.025, 0, 0.03]} radius={0.0025} smoothness={4} castShadow>
         <meshStandardMaterial color="#f0dfba" roughness={0.48} />
       </RoundedBox>
-      <RoundedBox args={[0.13, height + 0.2, 0.58]} position={[width / 2 + 0.07, 0, -0.02]} radius={0.025} smoothness={2} castShadow>
+      <RoundedBox args={[0.045, height + 0.06, 0.23]} position={[width / 2 + 0.025, 0, 0.03]} radius={0.0025} smoothness={4} castShadow>
         <meshStandardMaterial color="#f0dfba" roughness={0.48} />
       </RoundedBox>
       <ShelfTalker accent={section.accent} width={width} />
-      <group position={[0, height / 2 + 0.72, 0.08]}>
+      <group position={[0, height / 2 + 0.27, 0.035]}>
         <LabelPanel
           label={section.label}
           accent={section.accent}
           subtitle={section.id === "staff-picks" ? "SELECTED JUST FOR YOU" : undefined}
-          width={Math.min(width + 0.55, 6.8)}
+          width={Math.min(Math.max(width * 0.48, 1.05), 1.8)}
         />
       </group>
     </group>
@@ -323,11 +365,11 @@ function FluorescentFixture({ position, dead = false, flicker = false }: { posit
   });
   return (
     <group position={position}>
-      <RoundedBox args={[4.7, 0.1, 0.56]} radius={0.035} smoothness={2}>
+      <RoundedBox args={[1.2, 0.05, 0.58]} radius={0.003} smoothness={4}>
         <meshStandardMaterial color="#c4c8c1" metalness={0.42} roughness={0.38} />
       </RoundedBox>
       {[-0.18, -0.06, 0.06, 0.18].map((z) => (
-        <RoundedBox key={z} args={[4.25, 0.028, 0.055]} position={[0, -0.064, z]} radius={0.014} smoothness={2}>
+        <RoundedBox key={z} args={[1.05, 0.02, 0.035]} position={[0, -0.034, z]} radius={0.009} smoothness={4}>
           <primitive object={tubeMaterial} attach="material" dispose={null} />
         </RoundedBox>
       ))}
@@ -344,17 +386,17 @@ function AutomaticDoors({ open }: { open: boolean }) {
     right.current.position.x = THREE.MathUtils.damp(right.current.position.x, open ? 2.05 : 0.96, 5.5, delta);
   });
   return (
-    <group position={[0, 2.0, 22.9]}>
+    <group position={[0, 1.48, 22.9]}>
       <mesh ref={left} position={[-0.96, 0, 0]} castShadow>
-        <boxGeometry args={[1.84, 3.7, 0.09]} />
+        <boxGeometry args={[1.84, 2.9, 0.04]} />
         <meshPhysicalMaterial color="#94b8d6" transparent opacity={0.28} roughness={0.08} transmission={0.25} />
       </mesh>
       <mesh ref={right} position={[0.96, 0, 0]} castShadow>
-        <boxGeometry args={[1.84, 3.7, 0.09]} />
+        <boxGeometry args={[1.84, 2.9, 0.04]} />
         <meshPhysicalMaterial color="#94b8d6" transparent opacity={0.28} roughness={0.08} transmission={0.25} />
       </mesh>
-      <mesh position={[0, 2.04, 0]}>
-        <boxGeometry args={[5.6, 0.22, 0.3]} />
+      <mesh position={[0, 1.52, 0]}>
+        <boxGeometry args={[5.6, 0.12, 0.16]} />
         <meshStandardMaterial color="#123b8d" metalness={0.35} roughness={0.35} />
       </mesh>
     </group>
@@ -400,33 +442,33 @@ function CheckoutArea() {
   });
   return (
     <group name="checkout">
-      <RoundedBox args={[6.5, 1.35, 2.1]} position={[12.7, 0.72, 14.6]} radius={0.08} smoothness={3} castShadow receiveShadow>
+      <RoundedBox args={[4.2, 1.05, 1]} position={[13.1, 0.53, 14.6]} radius={0.004} smoothness={4} castShadow receiveShadow>
         <meshStandardMaterial color="#e9d5a8" roughness={0.48} />
       </RoundedBox>
-      <RoundedBox args={[6.65, 0.13, 2.3]} position={[12.7, 1.45, 14.25]} radius={0.045} smoothness={3} castShadow>
+      <RoundedBox args={[4.3, 0.055, 1.08]} position={[13.1, 1.08, 14.55]} radius={0.003} smoothness={4} castShadow>
         <meshStandardMaterial color="#17469c" roughness={0.32} metalness={0.1} />
       </RoundedBox>
-      <group position={[14.2, 2.18, 14.55]} rotation={[0, -0.22, 0]}>
-        <RoundedBox args={[1.35, 1.05, 1.05]} radius={0.12} smoothness={3} castShadow>
+      <group position={[14.25, 1.38, 14.55]} rotation={[0, -0.22, 0]}>
+        <RoundedBox args={[0.56, 0.42, 0.38]} radius={0.008} smoothness={4} castShadow>
           <meshStandardMaterial color="#242a32" roughness={0.6} />
         </RoundedBox>
-        <mesh position={[0, 0.02, -0.54]} rotation={[0, Math.PI, 0]}>
-          <planeGeometry args={[1.08, 0.77]} />
+        <mesh position={[0, 0.01, -0.195]} rotation={[0, Math.PI, 0]}>
+          <planeGeometry args={[0.43, 0.31]} />
           <meshStandardMaterial ref={crtScreen} map={crtTexture} color="#dcecff" emissive="#58aee4" emissiveMap={crtTexture} emissiveIntensity={1.5} roughness={0.24} />
         </mesh>
-        <pointLight position={[0, -0.05, -1.15]} color="#4fa6dc" intensity={1.15} distance={3.2} />
+        <pointLight position={[0, -0.02, -0.45]} color="#4fa6dc" intensity={0.65} distance={1.4} />
       </group>
-      <group position={[11.5, 2.1, 14.65]}>
-        <mesh position={[0, 0.58, 0]} castShadow>
-          <sphereGeometry args={[0.27, 16, 12]} />
+      <group position={[11.8, 1.5, 14.65]}>
+        <mesh position={[0, 0.36, 0]} castShadow>
+          <sphereGeometry args={[0.11, 16, 12]} />
           <meshStandardMaterial color="#b9794e" roughness={0.68} />
         </mesh>
-        <RoundedBox args={[0.58, 0.9, 0.38]} radius={0.08} smoothness={2} castShadow>
+        <RoundedBox args={[0.24, 0.52, 0.18]} radius={0.01} smoothness={4} castShadow>
           <meshStandardMaterial color="#3461ad" roughness={0.7} />
         </RoundedBox>
       </group>
-      <group position={[12.6, 3.5, 13.85]} rotation={[0, 0, 0]}>
-        <LabelPanel label="CHECKOUT" accent="#ffd54c" width={4.8} />
+      <group position={[13.1, 2.35, 14.02]} rotation={[0, 0, 0]}>
+        <LabelPanel label="CHECKOUT" accent="#ffd54c" width={1.8} />
       </group>
     </group>
   );
@@ -435,16 +477,16 @@ function CheckoutArea() {
 function SnackArea() {
   return (
     <group name="snacks">
-      <RoundedBox args={[5.4, 2.05, 1.4]} position={[-13.2, 1.05, 14.4]} radius={0.07} smoothness={3} castShadow>
+      <RoundedBox args={[3.5, 1.05, 0.72]} position={[-13.2, 0.53, 14.4]} radius={0.004} smoothness={4} castShadow>
         <meshStandardMaterial color="#d9c59c" roughness={0.58} />
       </RoundedBox>
-      {[-15, -14.1, -13.2, -12.3, -11.4].map((x, index) => (
-        <RoundedBox key={x} args={[0.56, 0.78, 0.12]} position={[x, 1.65 + (index % 2) * 0.025, 13.63]} rotation={[0, 0, (index - 2) * 0.012]} radius={0.035} smoothness={2} castShadow>
+      {[-14.4, -13.8, -13.2, -12.6, -12].map((x, index) => (
+        <RoundedBox key={x} args={[0.22, 0.35, 0.05]} position={[x, 1.25 + (index % 2) * 0.012, 14.01]} rotation={[0, 0, (index - 2) * 0.012]} radius={0.002} smoothness={4} castShadow>
           <meshStandardMaterial color={["#ee4466", "#ffcd4c", "#4ed1a1", "#965bce", "#f28a3b"][index]} roughness={0.48} />
         </RoundedBox>
       ))}
-      <group position={[-13.2, 3.0, 13.68]}>
-        <LabelPanel label="MOVIE NIGHT SNACKS" accent="#ffcf49" width={5.5} />
+      <group position={[-13.2, 2.05, 14.01]}>
+        <LabelPanel label="MOVIE NIGHT SNACKS" accent="#ffcf49" width={1.8} />
       </group>
     </group>
   );
@@ -453,11 +495,11 @@ function SnackArea() {
 function PromoDisplay({ position, color, label }: { position: [number, number, number]; color: string; label: string }) {
   return (
     <group position={position}>
-      <RoundedBox args={[2.6, 2.2, 0.75]} position={[0, 1.1, 0]} radius={0.065} smoothness={3} castShadow>
+      <RoundedBox args={[1.1, 1.5, 0.38]} position={[0, 0.75, 0]} radius={0.003} smoothness={4} castShadow>
         <meshStandardMaterial color={color} roughness={0.52} />
       </RoundedBox>
-      <group position={[0, 2.55, 0.4]}>
-        <LabelPanel label={label} accent="#ffe15a" width={2.8} />
+      <group position={[0, 1.72, 0.2]}>
+        <LabelPanel label={label} accent="#ffe15a" width={1.2} />
       </group>
     </group>
   );
@@ -466,8 +508,8 @@ function PromoDisplay({ position, color, label }: { position: [number, number, n
 export function StoreEnvironment({ entered }: { entered: boolean }) {
   return (
     <group name="nextup-video-store">
-      <color attach="background" args={["#07101d"]} />
-      <fog attach="fog" args={["#0b1421", 24, 60]} />
+      <color attach="background" args={["#10171b"]} />
+      <fog attach="fog" args={["#c8d6cc", 38, 68]} />
       <FloorSurfaces />
       <CeilingSurface />
       <StoreWalls />
@@ -475,13 +517,13 @@ export function StoreEnvironment({ entered }: { entered: boolean }) {
       <AutomaticDoors open={entered} />
 
       {STORE_SECTIONS.map((section) => <ShelfFixture key={section.id} section={section} />)}
-      <group position={[0, 4.35, -23.01]}>
-        <LabelPanel label="NEXTUP VIDEO" accent="#ffd84d" subtitle="MOVIES · TELEVISION · MORE" width={9.2} />
+      <group position={[0, 2.85, -23.01]}>
+        <LabelPanel label="NEXTUP VIDEO" accent="#ffd84d" subtitle="MOVIES · TELEVISION · MORE" width={3.4} />
       </group>
       {[-12, -4, 4, 12].flatMap((x) => [-15, -5, 5, 15].map((z) => (
         <FluorescentFixture
           key={`${x}:${z}`}
-          position={[x, 5.48, z]}
+          position={[x, 3.38, z]}
           dead={x === 12 && z === 15}
           flicker={x === -4 && z === -5}
         />
@@ -490,7 +532,6 @@ export function StoreEnvironment({ entered }: { entered: boolean }) {
       <SnackArea />
       <PromoDisplay position={[11.4, 0, 5.5]} color="#d43b3b" label="COMING SOON" />
       <PromoDisplay position={[0, 0, -13.1]} color="#224fa5" label="BE KIND, REWIND" />
-      <Sparkles count={80} scale={[32, 4.6, 42]} position={[0, 2.8, -1]} size={1.3} speed={0.12} color="#fff1bd" opacity={0.22} />
     </group>
   );
 }

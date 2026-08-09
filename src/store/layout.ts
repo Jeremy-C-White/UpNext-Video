@@ -10,6 +10,12 @@ export const STORE_BOUNDS = {
 
 export const PLAYER_SPAWN: Vec3Tuple = [0, 1.68, 20.4];
 
+// One Three.js unit is one metre. Keep these dimensions tied to a standard
+// Amaray-style DVD case so the entire room reads correctly against eye height.
+export const DVD_CASE_WIDTH = 0.135;
+export const DVD_CASE_HEIGHT = 0.19;
+export const DVD_CASE_DEPTH = 0.014;
+
 const EMPTY_SLOTS: Record<string, number[]> = {
   reserved: [7],
   "new-releases": [5, 18],
@@ -33,12 +39,12 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Reserved for You",
     label: "RESERVED FOR YOU",
     aisle: "Front desk · Holds",
-    center: [-11.2, 2.05, 18.7],
+    center: [-11.2, 1.08, 18.7],
     rotationY: 0,
     columns: 4,
     rows: 3,
-    columnGap: 0.76,
-    rowGap: 1.02,
+    columnGap: 0.36,
+    rowGap: 0.28,
     accent: "#ffd34e",
   },
   {
@@ -46,12 +52,12 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "New Releases",
     label: "★ NEW RELEASES ★",
     aisle: "Front feature · Center",
-    center: [0, 2.25, 4.2],
+    center: [0, 1.17, 4.2],
     rotationY: 0,
     columns: 8,
-    rows: 3,
-    columnGap: 0.77,
-    rowGap: 1.04,
+    rows: 6,
+    columnGap: 0.62,
+    rowGap: 0.28,
     accent: "#ffe45c",
   },
   {
@@ -59,12 +65,12 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Action",
     label: "ACTION",
     aisle: "Aisle 1 · West wall",
-    center: [-16.5, 2.25, -7.1],
+    center: [-16.5, 1.17, -7.1],
     rotationY: Math.PI / 2,
     columns: 8,
-    rows: 3,
-    columnGap: 0.77,
-    rowGap: 1.04,
+    rows: 6,
+    columnGap: 0.62,
+    rowGap: 0.28,
     accent: "#ff5f46",
   },
   {
@@ -72,12 +78,12 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Comedy",
     label: "COMEDY",
     aisle: "Aisle 2 · West island",
-    center: [-6.75, 2.25, -5.3],
+    center: [-6.75, 1.17, -5.3],
     rotationY: Math.PI / 2,
     columns: 8,
-    rows: 3,
-    columnGap: 0.77,
-    rowGap: 1.04,
+    rows: 6,
+    columnGap: 0.62,
+    rowGap: 0.28,
     accent: "#ffcf4a",
   },
   {
@@ -85,12 +91,12 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Horror",
     label: "HORROR",
     aisle: "Aisle 3 · West island",
-    center: [-6.35, 2.25, -5.3],
+    center: [-6.35, 1.17, -5.3],
     rotationY: -Math.PI / 2,
     columns: 8,
-    rows: 3,
-    columnGap: 0.77,
-    rowGap: 1.04,
+    rows: 6,
+    columnGap: 0.62,
+    rowGap: 0.28,
     accent: "#f0528d",
   },
   {
@@ -98,12 +104,12 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Science Fiction",
     label: "SCIENCE FICTION",
     aisle: "Aisle 4 · East island",
-    center: [6.35, 2.25, -5.3],
+    center: [6.35, 1.17, -5.3],
     rotationY: Math.PI / 2,
     columns: 8,
-    rows: 3,
-    columnGap: 0.77,
-    rowGap: 1.04,
+    rows: 6,
+    columnGap: 0.62,
+    rowGap: 0.28,
     accent: "#51d6ff",
   },
   {
@@ -111,12 +117,12 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Television",
     label: "TELEVISION",
     aisle: "Aisle 5 · East island",
-    center: [6.75, 2.25, -5.3],
+    center: [6.75, 1.17, -5.3],
     rotationY: -Math.PI / 2,
     columns: 8,
-    rows: 3,
-    columnGap: 0.77,
-    rowGap: 1.04,
+    rows: 6,
+    columnGap: 0.62,
+    rowGap: 0.28,
     accent: "#62e5b6",
   },
   {
@@ -124,12 +130,12 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Staff Picks",
     label: "NEXTUP STAFF PICKS",
     aisle: "Aisle 6 · East wall",
-    center: [16.5, 2.25, -7.1],
+    center: [16.5, 1.17, -7.1],
     rotationY: -Math.PI / 2,
     columns: 8,
-    rows: 3,
-    columnGap: 0.77,
-    rowGap: 1.04,
+    rows: 6,
+    columnGap: 0.62,
+    rowGap: 0.28,
     accent: "#8ea7ff",
   },
 ];
@@ -151,10 +157,10 @@ export function createPlacement(section: StoreSectionDefinition, index: number):
   const localY = ((section.rows - 1) / 2 - row) * section.rowGap;
   const cos = Math.cos(section.rotationY);
   const sin = Math.sin(section.rotationY);
-  const localZ = 0.25 + (placementNoise(section.id, physicalSlot, 1) - 0.5) * 0.075;
-  const yawVariation = (placementNoise(section.id, physicalSlot, 2) - 0.5) * 0.022;
-  const lean = (placementNoise(section.id, physicalSlot, 3) - 0.5) * 0.052;
-  const caseScale = 0.985 + placementNoise(section.id, physicalSlot, 4) * 0.025;
+  const localZ = 0.06 + (placementNoise(section.id, physicalSlot, 1) - 0.5) * 0.008;
+  const yawVariation = (placementNoise(section.id, physicalSlot, 2) - 0.5) * 0.014;
+  const lean = (placementNoise(section.id, physicalSlot, 3) - 0.5) * 0.026;
+  const caseScale = 0.98 + placementNoise(section.id, physicalSlot, 4) * 0.035;
 
   return {
     position: [
@@ -174,11 +180,11 @@ export function createPlacement(section: StoreSectionDefinition, index: number):
 }
 
 export function sectionWidth(section: StoreSectionDefinition) {
-  return (section.columns - 1) * section.columnGap + 0.92;
+  return (section.columns - 1) * section.columnGap + 0.24;
 }
 
 export function sectionHeight(section: StoreSectionDefinition) {
-  return (section.rows - 1) * section.rowGap + 1.25;
+  return (section.rows - 1) * section.rowGap + 0.35;
 }
 
 export function buildGuidancePath(start: Vec3Tuple, target: Vec3Tuple): THREE.Vector3[] {

@@ -173,9 +173,16 @@ export function StoreController({
       raycaster.far = 3.45;
       raycaster.setFromCamera(center, camera);
       const hit = raycaster.intersectObjects(scene.children, true).find((intersection) => {
-        return typeof intersection.object.userData.storeItemId === "string";
+        return typeof intersection.object.userData.storeItemId === "string" || Array.isArray(intersection.object.userData.storeItemIds);
       });
-      const nextHover = hit?.object.userData.storeItemId || null;
+      const itemIds = hit?.object.userData.storeItemIds as string[] | undefined;
+      const nextHover = hit
+        ? typeof hit.object.userData.storeItemId === "string"
+          ? hit.object.userData.storeItemId
+          : typeof hit.instanceId === "number"
+            ? itemIds?.[hit.instanceId] || null
+            : null
+        : null;
       if (nextHover !== hoveredId.current) {
         hoveredId.current = nextHover;
         onHover(nextHover);

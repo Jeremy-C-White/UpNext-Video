@@ -1,6 +1,8 @@
 import { useEffect, useRef } from "react";
 import { AdaptiveDpr, ContactShadows } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
+import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import type { StoreMedia, PlayerPose, Vec3Tuple } from "./types";
 import { GuidePath } from "./GuidePath";
@@ -8,6 +10,7 @@ import { HeldCase, MovieCases } from "./MovieCases";
 import { StoreController } from "./StoreController";
 import { StoreEnvironment } from "./StoreEnvironment";
 import { StoreLighting } from "./StoreLighting";
+import { setPosterTextureAnisotropy } from "./posterTextures";
 
 interface Props {
   entered: boolean;
@@ -58,6 +61,56 @@ function RendererWarmup({ enabled, onReady }: { enabled: boolean; onReady: () =>
   return null;
 }
 
+function TextureQualityController() {
+  const { gl, scene } = useThree();
+  useEffect(() => {
+    const maxAnisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy());
+    setPosterTextureAnisotropy(maxAnisotropy);
+    const textureProperties = ["map", "normalMap", "roughnessMap", "bumpMap", "metalnessMap", "clearcoatNormalMap"];
+    scene.traverse((object) => {
+      const mesh = object as THREE.Mesh;
+      const materials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
+      materials.forEach((material) => {
+        const values = material as THREE.Material & Record<string, unknown>;
+        textureProperties.forEach((property) => {
+          const texture = values[property];
+          if (!(texture instanceof THREE.Texture)) return;
+          texture.anisotropy = maxAnisotropy;
+          texture.needsUpdate = true;
+        });
+      });
+    });
+  }, [gl, scene]);
+  return null;
+}
+
+export function StorePostProcessing() {
+  return (
+    <EffectComposer multisampling={0} resolutionScale={0.75}>
+      <N8AO
+        halfRes
+        quality="performance"
+        aoRadius={0.35}
+        distanceFalloff={0.7}
+        intensity={1.05}
+        aoSamples={8}
+        denoiseSamples={4}
+        denoiseRadius={8}
+      />
+      <Bloom
+        mipmapBlur
+        intensity={0.22}
+        luminanceThreshold={1.7}
+        luminanceSmoothing={0.18}
+        radius={0.55}
+      />
+      <Vignette eskil={false} offset={0.2} darkness={0.22} />
+      <SMAA />
+      <ToneMapping mode={ToneMappingMode.AGX} />
+    </EffectComposer>
+  );
+}
+
 export function StoreScene(props: Props) {
   const { selected, guideTarget, playerPose } = props;
   return (
@@ -68,7 +121,9 @@ export function StoreScene(props: Props) {
       <HeldCase item={selected} flipped={props.flipped} />
       <GuidePath start={[playerPose.x, 0.035, playerPose.z]} target={guideTarget} />
       <ContactShadows position={[0, 0.025, 0]} scale={38} opacity={0.24} blur={2.7} far={6.5} resolution={512} frames={1} />
+      <StorePostProcessing />
       <AdaptiveDpr />
+      <TextureQualityController />
       <RendererWarmup enabled={props.prewarm} onReady={props.onReady} />
       <StoreController
         paused={props.paused}

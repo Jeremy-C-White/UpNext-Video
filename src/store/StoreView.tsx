@@ -209,7 +209,8 @@ export default function StoreView({
         <Suspense fallback={<div className="store-render-loading">Preparing the showroom…</div>}>
           <Canvas
             shadows
-            dpr={[0.75, 1.5]}
+             dpr={[0.75, 1.5]}
+             performance={{ min: 0.5, max: 1, debounce: 200 }}
             frameloop={scenePaused ? "never" : "always"}
             camera={{ fov: 53, near: 0.06, far: 78, position: PLAYER_SPAWN }}
             gl={{ antialias: true, alpha: false, powerPreference: "high-performance", stencil: false }}

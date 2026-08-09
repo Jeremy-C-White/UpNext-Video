@@ -13,5 +13,10 @@ describe("store collision movement", () => {
     expect(result.x).toBe(-5.2);
     expect(result.z).toBe(-4.2);
   });
-});
 
+  it("does not retain oversized collision zones from the old store scale", () => {
+    expect(canOccupy(13, 12)).toBe(true);
+    expect(canOccupy(-12, 16)).toBe(true);
+    expect(canOccupy(0, 4.2)).toBe(false);
+  });
+});

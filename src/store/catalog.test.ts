@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Show, UserEpisode, UserShow } from "../types";
 import { buildStoreCatalog } from "./catalog";
-import { createPlacement, sectionCapacity, STORE_SECTIONS } from "./layout";
+import { createPlacement, DVD_CASE_DEPTH, DVD_CASE_HEIGHT, DVD_CASE_WIDTH, sectionCapacity, sectionHeight, STORE_SECTIONS } from "./layout";
 
 const makeShow = (id: number, name: string, genres: string[], isMovie = true): Show => ({
   id,
@@ -50,7 +50,15 @@ describe("NEXTUP VIDEO catalog", () => {
     expect(catalog.length).toBeGreaterThan(100);
     expect(catalog.every((item) => Number.isFinite(item.placement.rotationY))).toBe(true);
     expect(catalog.some((item) => Math.abs(item.placement.rotationZ) > 0.005)).toBe(true);
-    expect(catalog.every((item) => item.placement.scale >= 0.985 && item.placement.scale <= 1.01)).toBe(true);
+    expect(catalog.every((item) => item.placement.scale >= 0.98 && item.placement.scale <= 1.015)).toBe(true);
+  });
+
+  it("uses human-scale cases and six-row rental fixtures", () => {
+    const section = STORE_SECTIONS.find((candidate) => candidate.id === "new-releases")!;
+    expect([DVD_CASE_WIDTH, DVD_CASE_HEIGHT, DVD_CASE_DEPTH]).toEqual([0.135, 0.19, 0.014]);
+    expect(section.rows).toBe(6);
+    expect(section.rowGap).toBeCloseTo(0.28);
+    expect(sectionHeight(section)).toBeLessThan(1.9);
   });
 
   it("leaves believable rented-out gaps without overlapping physical slots", () => {

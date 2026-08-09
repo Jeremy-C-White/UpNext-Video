@@ -27,6 +27,9 @@ const fallbackLoader = new THREE.TextureLoader();
 fallbackLoader.setCrossOrigin("anonymous");
 let activeDownloads = 0;
 let uploadFrame = 0;
+let preferredAnisotropy = 4;
+let lastTextureError = "";
+const managedTextureArrays = new Set<THREE.DataArrayTexture>();
 
 function createPlaceholderTexture() {
   const canvas = document.createElement("canvas");
@@ -70,7 +73,7 @@ export function posterUrlForQuality(url: string, quality: PosterQuality) {
 
 function configurePosterTexture(texture: THREE.Texture) {
   texture.colorSpace = THREE.SRGBColorSpace;
-  texture.anisotropy = 4;
+  texture.anisotropy = preferredAnisotropy;
   texture.minFilter = THREE.LinearMipmapLinearFilter;
   texture.magFilter = THREE.LinearFilter;
   texture.generateMipmaps = true;
@@ -157,7 +160,11 @@ async function downloadPoster(url: string) {
     const bitmap = await window.createImageBitmap(blob, { imageOrientation: "flipY" });
     scheduleUpload({
       url,
-      createTexture: () => new THREE.Texture(bitmap),
+      createTexture: () => {
+        const texture = new THREE.Texture(bitmap);
+        texture.userData.nextupImagePreflipped = true;
+        return texture;
+      },
       discard: () => bitmap.close(),
     });
   } catch (error) {
@@ -171,6 +178,7 @@ async function downloadPoster(url: string) {
     }
     const liveEntry = textureCache.get(url);
     if (!liveEntry) return;
+    lastTextureError = error instanceof Error ? error.message : String(error);
     liveEntry.queued = false;
     liveEntry.abortController = undefined;
     liveEntry.listeners.forEach((notify) => notify(placeholderTexture));
@@ -253,12 +261,95 @@ export function usePosterTexture(rawUrl: string, quality: PosterQuality = "shelf
   return texture;
 }
 
+export function setPosterTextureAnisotropy(value: number) {
+  preferredAnisotropy = Math.max(1, Math.floor(value));
+  placeholderTexture.anisotropy = preferredAnisotropy;
+  for (const entry of textureCache.values()) {
+    entry.texture.anisotropy = preferredAnisotropy;
+  }
+  for (const texture of managedTextureArrays) texture.anisotropy = preferredAnisotropy;
+}
+
+export function usePosterTextureArray(rawUrls: string[]) {
+  const urls = useMemo(() => rawUrls.map((url) => posterUrlForQuality(url, "shelf")), [rawUrls]);
+  const resource = useMemo(() => {
+    const width = 128;
+    const height = 192;
+    const depth = Math.max(1, urls.length);
+    const layerSize = width * height * 4;
+    const data = new Uint8Array(layerSize * depth);
+    for (let layer = 0; layer < depth; layer += 1) {
+      const offset = layer * layerSize;
+      for (let pixel = 0; pixel < width * height; pixel += 1) {
+        const x = pixel % width;
+        const y = Math.floor(pixel / width);
+        const border = x < 7 || x >= width - 7 || y < 7 || y >= height - 7;
+        data[offset + pixel * 4] = border ? 213 : 229;
+        data[offset + pixel * 4 + 1] = border ? 205 : 223;
+        data[offset + pixel * 4 + 2] = border ? 189 : 208;
+        data[offset + pixel * 4 + 3] = 255;
+      }
+    }
+    const texture = new THREE.DataArrayTexture(data, width, height, depth);
+    texture.colorSpace = THREE.NoColorSpace;
+    texture.magFilter = THREE.LinearFilter;
+    texture.minFilter = THREE.LinearFilter;
+    texture.generateMipmaps = false;
+    texture.anisotropy = preferredAnisotropy;
+    texture.needsUpdate = true;
+    managedTextureArrays.add(texture);
+    return { texture, data, width, height, layerSize };
+  }, [urls]);
+
+  useEffect(() => {
+    const scratch = document.createElement("canvas");
+    scratch.width = resource.width;
+    scratch.height = resource.height;
+    const context = scratch.getContext("2d", { willReadFrequently: true })!;
+    const releases = urls.map((url, layer) => acquireTexture(url, (sourceTexture) => {
+      if (sourceTexture.userData.nextupPosterPlaceholder || !sourceTexture.image) return;
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      context.clearRect(0, 0, resource.width, resource.height);
+      if (!sourceTexture.userData.nextupImagePreflipped) {
+        context.translate(0, resource.height);
+        context.scale(1, -1);
+      }
+      context.drawImage(sourceTexture.image as CanvasImageSource, 0, 0, resource.width, resource.height);
+      context.setTransform(1, 0, 0, 1, 0, 0);
+      const pixels = context.getImageData(0, 0, resource.width, resource.height);
+      for (let index = 0; index < pixels.data.length; index += 4) {
+        const red = pixels.data[index];
+        const green = pixels.data[index + 1];
+        const blue = pixels.data[index + 2];
+        const gray = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+        const grain = (((index / 4 + layer * 37) * 17) % 7) - 3;
+        pixels.data[index] = Math.min(255, 7 + (red * 0.96 + gray * 0.04) * 0.96 + grain);
+        pixels.data[index + 1] = Math.min(255, 7 + (green * 0.96 + gray * 0.04) * 0.96 + grain);
+        pixels.data[index + 2] = Math.min(255, 7 + (blue * 0.96 + gray * 0.04) * 0.96 + grain);
+      }
+      resource.data.set(pixels.data, layer * resource.layerSize);
+      resource.texture.addLayerUpdate(layer);
+      resource.texture.needsUpdate = true;
+    }));
+    return () => releases.forEach((release) => release());
+  }, [resource, urls]);
+
+  useEffect(() => () => {
+    managedTextureArrays.delete(resource.texture);
+    resource.texture.dispose();
+  }, [resource]);
+
+  return resource.texture;
+}
+
 export function getPosterTextureStats() {
   return {
     entries: textureCache.size,
+    loadedTextures: Array.from(textureCache.values()).filter((entry) => entry.loaded).length,
     references: Array.from(textureCache.values()).reduce((sum, entry) => sum + entry.refs, 0),
     pendingDownloads: downloadQueue.length,
     pendingUploads: uploadQueue.length,
     activeDownloads,
+    lastError: lastTextureError,
   };
 }

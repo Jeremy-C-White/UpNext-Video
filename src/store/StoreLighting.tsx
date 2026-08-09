@@ -1,25 +1,51 @@
-import { useRef } from "react";
+import { useEffect, useRef } from "react";
 import { BakeShadows } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
+import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
 
-function TrofferLight({ x, z, dead = false, flicker = false }: { x: number; z: number; dead?: boolean; flicker?: boolean }) {
+RectAreaLightUniformsLib.init();
+
+function StoreImageBasedLighting() {
+  const { gl, scene } = useThree();
+  useEffect(() => {
+    const previousEnvironment = scene.environment;
+    const previousIntensity = scene.environmentIntensity;
+    const room = new RoomEnvironment();
+    const pmrem = new THREE.PMREMGenerator(gl);
+    pmrem.compileCubemapShader();
+    const target = pmrem.fromScene(room, 0.04);
+    scene.environment = target.texture;
+    scene.environmentIntensity = 0.35;
+    return () => {
+      scene.environment = previousEnvironment;
+      scene.environmentIntensity = previousIntensity;
+      target.dispose();
+      pmrem.dispose();
+      room.dispose();
+    };
+  }, [gl, scene]);
+  return null;
+}
+
+function TrofferLight({ x, z, flicker = false }: { x: number; z: number; flicker?: boolean }) {
   const light = useRef<THREE.RectAreaLight>(null);
-  const nominalPower = dead ? 90 : 6800;
+  const nominalPower = 1450;
   useFrame(({ clock }) => {
-    if (!light.current || !flicker || dead) return;
+    if (!light.current || !flicker) return;
     const drop = Math.sin(clock.elapsedTime * 37) > 0.82 ? 0.2 : 1;
     light.current.power = THREE.MathUtils.lerp(light.current.power, nominalPower * drop, 0.24);
   });
   return (
     <rectAreaLight
       ref={light}
-      position={[x, 5.34, z]}
+      position={[x, 3.28, z]}
       rotation={[-Math.PI / 2, 0, 0]}
-      width={5.2}
-      height={0.52}
+      width={8.5}
+      height={9}
       power={nominalPower}
-      color={dead ? "#708078" : "#d9f1df"}
+      color="#d9f1df"
     />
   );
 }
@@ -27,22 +53,16 @@ function TrofferLight({ x, z, dead = false, flicker = false }: { x: number; z: n
 export function StoreLighting() {
   return (
     <group name="store-lighting">
-      <hemisphereLight args={["#d8e7df", "#102142", 0.68]} />
-      <ambientLight color="#bfd0c7" intensity={0.16} />
-      {[-12, -4, 4, 12].map((x) =>
-        [-15, -5, 15].map((z) => (
-          <TrofferLight
-            key={`${x}:${z}`}
-            x={x}
-            z={z}
-            dead={x === 12 && z === 15}
-            flicker={x === -4 && z === -5}
-          />
-        )),
-      )}
+      <StoreImageBasedLighting />
+      <hemisphereLight args={["#d8e7df", "#172036", 0.24]} />
+      <ambientLight color="#bfd0c7" intensity={0.045} />
+      <TrofferLight x={-8} z={-10} flicker />
+      <TrofferLight x={8} z={-10} />
+      <TrofferLight x={-8} z={10} />
+      <TrofferLight x={8} z={10} />
       <directionalLight
-        position={[3, 8, 12]}
-        intensity={0.42}
+        position={[3, 6, 12]}
+        intensity={0.38}
         color="#b7ccbf"
         castShadow
         shadow-mapSize={[1024, 1024]}
