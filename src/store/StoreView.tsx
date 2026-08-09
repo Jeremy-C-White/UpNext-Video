@@ -5,6 +5,7 @@ import * as THREE from "three";
 import { DoorOpen } from "lucide-react";
 import type { Show, UserEpisode, UserShow } from "../types";
 import { getStoreCatalogTMDB } from "../lib/tmdb";
+import { detectPlaybackEnvironment } from "../lib/playbackCapabilities";
 import { buildStoreCatalog } from "./catalog";
 import { PLAYER_SPAWN } from "./layout";
 import { StoreAudioBus } from "./StoreAudio";
@@ -39,10 +40,11 @@ class StoreCanvasBoundary extends Component<{ children: ReactNode; onError: () =
 
 function supportsDesktopStore() {
   if (typeof window === "undefined") return true;
+  const playbackEnvironment = detectPlaybackEnvironment();
   const canvas = document.createElement("canvas");
   const webgl2 = Boolean(canvas.getContext("webgl2"));
   const desktopViewport = window.innerWidth >= 960;
-  return webgl2 && desktopViewport;
+  return playbackEnvironment.isDesktop && webgl2 && desktopViewport;
 }
 
 export default function StoreView({
@@ -238,7 +240,7 @@ export default function StoreView({
   if (unsupported) {
     return (
       <div className="store-shell store-unsupported">
-        <div><span className="store-directory-kicker">DESKTOP EXPERIENCE</span><h1>NEXTUP VIDEO needs a larger WebGL 2 browser.</h1><p>Open this mode in a current desktop version of Chrome, Edge, Firefox, or Safari. Your classic NextUp experience is still available.</p><button onClick={onExit}>Return to classic NextUp</button></div>
+        <div><span className="store-directory-kicker">DESKTOP EXPERIENCE</span><h1>NEXTUP VIDEO is built for a desktop browser.</h1><p>On iPhone and iPad, NextUp automatically keeps the lighter classic interface and iOS-safe playback. Open Store Mode in a current desktop browser with WebGL 2.</p><button onClick={onExit}>Return to classic NextUp</button></div>
       </div>
     );
   }

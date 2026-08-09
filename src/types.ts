@@ -86,12 +86,16 @@ export interface PlaybackCandidate {
   quality?: string;
   sizeBytes?: number;
   container?: string;
+  mediaContainer?: string;
   videoCodec?: string;
   audioCodec?: string;
+  browserCompatibility?: "compatible" | "external" | "unknown";
+  requiresCustomHeaders?: boolean;
   score: number;
   seeders?: number;
   readiness?: string;
   provider?: string;
+  audioLanguage?: "english" | "multi" | "unknown";
 }
 
 export interface PlaybackSession {
@@ -110,7 +114,13 @@ export interface PlaybackRequest {
   imdbId?: string;
   _tmdbId?: number;
   tvmazeId?: number;
+  episodeId: string;
   season: number;
   number: number;
   episodeName: string;
+  imageUrl?: string;
+  backdropUrl?: string;
+  episodeImageUrl?: string;
+  summary?: string;
+  provider?: string;
 }

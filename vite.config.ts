@@ -28,8 +28,8 @@ export default defineConfig(() => {
         },
         injectManifest: {
           globPatterns: ['**/*.{js,css,html,ico,png,svg}'],
-          // The 3D renderer remains a true on-demand download for classic users.
-          globIgnores: ['**/StoreView-*.js', '**/StoreView-*.css']
+          // The 3D renderer and HLS adapter remain true on-demand downloads.
+          globIgnores: ['**/StoreView-*.js', '**/StoreView-*.css', '**/hls-*.js']
         }
       })
     ],
