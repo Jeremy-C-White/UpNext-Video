@@ -37,6 +37,7 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [providerError, setProviderError] = useState('');
+  const [providerWarning, setProviderWarning] = useState('');
 
   useEffect(() => {
     if (typeof window !== 'undefined' && isOpen) {
@@ -104,11 +105,18 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
     if (typeof window !== 'undefined') {
       const trimmed = aiostreamsUrl.trim();
       setProviderError('');
+      setProviderWarning('');
       
       if (trimmed) {
         setLoading(true);
         try {
-          const normalized = await validateAioStreamsProvider(trimmed);
+          const normalized = normalizeAioStreamsBaseUrl(trimmed);
+          let validationWarning = '';
+          try {
+            await validateAioStreamsProvider(normalized);
+          } catch (validationError: any) {
+            validationWarning = `${validationError?.message || 'Manifest validation was unavailable.'} The URL was saved because its stream endpoint will be tested when you play a title.`;
+          }
           const envUrl = (import.meta as any).env?.VITE_AIOSTREAMS_BASE_URL?.trim();
           if (envUrl && normalized === normalizeAioStreamsBaseUrl(envUrl)) {
             localStorage.removeItem("aiostreams_base_url");
@@ -118,6 +126,7 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
             setAiostreamsUrl(normalized);
           }
 
+          setProviderWarning(validationWarning);
           setAiostreamsSaved(true);
           setTimeout(() => setAiostreamsSaved(false), 2500);
         } catch (err: any) {
@@ -127,6 +136,7 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
         }
       } else {
         localStorage.removeItem("aiostreams_base_url");
+        setProviderWarning('');
         setAiostreamsSaved(true);
         setTimeout(() => setAiostreamsSaved(false), 2500);
       }
@@ -426,11 +436,16 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
                 <CheckCircle2 className="w-3.5 h-3.5" /> Stream provider URL saved successfully!
               </p>
             )}
-            {providerError && (
-              <p className="text-red-500 text-xs flex items-center gap-1 font-medium">
-                <X className="w-3.5 h-3.5" /> {providerError}
-              </p>
-            )}
+              {providerError && (
+                <p className="text-red-500 text-xs flex items-center gap-1 font-medium">
+                  <X className="w-3.5 h-3.5" /> {providerError}
+                </p>
+              )}
+              {providerWarning && (
+                <p className="text-amber-500 text-xs flex items-start gap-1 font-medium">
+                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" /> {providerWarning}
+                </p>
+              )}
             <div className="flex gap-2">
               <button
                 type="submit"
@@ -443,9 +458,11 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
                 <button
                   type="button"
                   onClick={() => {
-                    setAiostreamsUrl('');
-                    localStorage.removeItem("aiostreams_base_url");
-                    setAiostreamsSaved(true);
+                      setAiostreamsUrl('');
+                      localStorage.removeItem("aiostreams_base_url");
+                      setProviderError('');
+                      setProviderWarning('');
+                      setAiostreamsSaved(true);
                     setTimeout(() => setAiostreamsSaved(false), 2500);
                   }}
                   className="px-3 py-2.5 bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl text-xs font-semibold transition-colors"
