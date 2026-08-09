@@ -21,6 +21,7 @@
     "date-fns": "^4.4.0",
     "express": "^5.2.1",
     "firebase": "^12.16.0",
+    "hls.js": "^1.6.17",
     "lucide-react": "^0.546.0",
     "n8ao": "^2.0.0",
     "postprocessing": "^6.39.4",

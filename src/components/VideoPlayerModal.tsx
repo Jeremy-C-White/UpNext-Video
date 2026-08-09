@@ -1,6 +1,6 @@
-import React, { useEffect, useRef, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback, useMemo } from "react";
 import { createPortal } from "react-dom";
-import { X, PlayCircle, RefreshCcw, List, Check, Database, Copy, ExternalLink, Film, Tv } from "lucide-react";
+import { X, PlayCircle, RefreshCcw, List, Check, Database, Copy, ExternalLink, Film, Tv, SkipForward } from "lucide-react";
 import { openExternalPlayer, getBestTorrentioStream } from "../lib/debrid";
 import { PlaybackRequest, PlaybackCandidate } from "../types";
 import { getTMDBExternalIds } from "../lib/tmdb";
@@ -8,6 +8,30 @@ import { getShow, resolveTVMazeShow } from "../lib/tvmaze";
 import { doc, setDoc } from "firebase/firestore";
 import { db, auth } from "../firebase";
 import { removeUndefined } from "../lib/library";
+import {
+  detectPlaybackEnvironment,
+  getCandidateFormatLabel,
+  inferCandidateContainer,
+  partitionPlaybackCandidates,
+} from "../lib/playbackCapabilities";
+import { findEnglishAudioTrackIndex, hasOnlyKnownNonEnglishTracks, type AudioTrackDescriptor } from "../lib/audioTracks";
+import {
+  CREDITS_AUTOPLAY_COUNTDOWN_SECONDS,
+  shouldOfferNextEpisodeShortcut,
+  shouldStartCreditsAutoplay,
+} from "../lib/autoplay";
+import {
+  findActiveIntroDBSegment,
+  getIntroDBSegments,
+  type IntroDBSegments,
+  type IntroDBSegmentType,
+} from "../lib/introdb";
+import {
+  clearPlaybackProgress,
+  getResumePosition,
+  readPlaybackProgress,
+  writePlaybackProgress,
+} from "../lib/playbackProgress";
 
 const formatBytes = (bytes?: number) => {
   if (!bytes) return "";
@@ -18,6 +42,7 @@ const formatBytes = (bytes?: number) => {
 };
 
 function StreamBadges({ cand, isExternal }: { cand: PlaybackCandidate, isExternal: boolean }) {
+  const formatLabel = getCandidateFormatLabel(cand);
   return (
     <div className="flex items-center gap-1.5 flex-wrap">
       {cand.provider && (
@@ -42,16 +67,26 @@ function StreamBadges({ cand, isExternal }: { cand: PlaybackCandidate, isExterna
       )}
       {isExternal ? (
         <span className="bg-amber-500/10 text-amber-300 font-bold text-[10px] px-2 py-0.5 rounded border border-amber-500/20">
-          External
+          Fallback
         </span>
       ) : (
         <span className="bg-green-500/20 text-green-300 font-bold text-[10px] px-2 py-0.5 rounded border border-green-500/20">
-          Playable
+          Plays in NextUp
+        </span>
+      )}
+      {formatLabel && (
+        <span className="bg-cyan-500/10 text-cyan-200 font-bold text-[10px] px-2 py-0.5 rounded border border-cyan-500/20">
+          {formatLabel}
         </span>
       )}
       {cand.quality && (
         <span className="bg-white/10 text-white/80 font-bold text-[10px] px-2 py-0.5 rounded border border-white/5">
           {cand.quality}
+        </span>
+      )}
+      {cand.audioLanguage && cand.audioLanguage !== "unknown" && (
+        <span className="bg-indigo-500/15 text-indigo-200 font-bold text-[10px] px-2 py-0.5 rounded border border-indigo-500/20">
+          {cand.audioLanguage === "english" ? "English audio" : "Multi-audio"}
         </span>
       )}
       {cand.sizeBytes && (
@@ -65,22 +100,39 @@ function StreamBadges({ cand, isExternal }: { cand: PlaybackCandidate, isExterna
 
 interface VideoPlayerModalProps {
   request: PlaybackRequest;
+  nextRequest?: PlaybackRequest | null;
+  onEpisodeComplete?: () => void;
+  onPlayNext?: () => void;
   onClose: () => void;
   overStore?: boolean;
 }
 
 type PlayerMode = 'loading' | 'mp4_play' | 'mkv_transition' | 'error';
 
-export function VideoPlayerModal({ request, onClose, overStore = false }: VideoPlayerModalProps) {
+export function VideoPlayerModal({
+  request,
+  nextRequest = null,
+  onEpisodeComplete,
+  onPlayNext,
+  onClose,
+  overStore = false,
+}: VideoPlayerModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
-    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const playbackEnvironment = useMemo(() => detectPlaybackEnvironment(), []);
+  const isIOS = playbackEnvironment.isIOS;
   
   const [candidates, setCandidates] = useState<PlaybackCandidate[]>([]);
   const [candidateIndex, setCandidateIndex] = useState(0);
   
-  const mp4Candidates = candidates.filter(c => c.container === 'web-compatible');
-  const mkvCandidates = candidates.filter(c => c.container !== 'web-compatible');
+  // Keep the existing internal names to avoid disturbing the media recovery
+  // state machine. The lists are now adaptive: desktop Chrome receives MKV
+  // runtime probes while iOS receives only conservative inline sources.
+  const partitionedCandidates = useMemo(
+    () => partitionPlaybackCandidates(candidates, playbackEnvironment),
+    [candidates, playbackEnvironment],
+  );
+  const mp4Candidates = partitionedCandidates.inApp;
+  const mkvCandidates = partitionedCandidates.fallback;
 
   const [mode, setMode] = useState<PlayerMode>('loading');
   const [showSourceSelector, setShowSourceSelector] = useState(false);
@@ -97,6 +149,12 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
   const [sourceValidated, setSourceValidated] = useState(false);
   const [resolutionAttempt, setResolutionAttempt] = useState(0);
   const [videoAttemptKey, setVideoAttemptKey] = useState(0);
+  const [resolvedImdbId, setResolvedImdbId] = useState(request.imdbId || "");
+  const [introSegments, setIntroSegments] = useState<IntroDBSegments>({});
+  const [ignoredSegmentTypes, setIgnoredSegmentTypes] = useState<Set<IntroDBSegmentType>>(new Set());
+  const [playbackClock, setPlaybackClock] = useState({ currentTime: 0, duration: 0 });
+  const [creditsCountdown, setCreditsCountdown] = useState<number | null>(null);
+  const [creditsAutoplayCancelled, setCreditsAutoplayCancelled] = useState(false);
   
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const playAttemptedForSourceRef = useRef(false);
@@ -104,6 +162,10 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
   const sourceValidatedRef = useRef(false);
   const startupDeadlineRef = useRef(0);
   const resolutionAttemptRef = useRef(0);
+  const lastProgressWriteRef = useRef(0);
+  const resumeAppliedForSourceRef = useRef("");
+  const completionHandledRef = useRef(false);
+  const nextSourcePrewarmRef = useRef("");
 
   // Mutable refs to eliminate stale closure issues in timers & event handlers
   const candidatesRef = useRef<PlaybackCandidate[]>([]);
@@ -121,14 +183,81 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
   useEffect(() => { modeRef.current = mode; }, [mode]);
   useEffect(() => { resolutionAttemptRef.current = resolutionAttempt; }, [resolutionAttempt]);
 
-  const currentMp4Stream = mp4Candidates[candidateIndex]?.url;
+  const currentInAppCandidate = mp4Candidates[candidateIndex];
+  const currentMp4Stream = currentInAppCandidate?.url;
+  const usesHlsAdapter = Boolean(
+    currentInAppCandidate &&
+    inferCandidateContainer(currentInAppCandidate) === "hls" &&
+    !playbackEnvironment.supportsNativeHls,
+  );
   const topMkv = mkvCandidates[0];
+
+  const progressUserId = auth.currentUser?.uid || "local";
+
+  const saveCurrentProgress = useCallback((force = false) => {
+    const video = videoRef.current;
+    if (!video || !Number.isFinite(video.duration) || video.duration <= 0) return;
+    const now = Date.now();
+    if (!force && now - lastProgressWriteRef.current < 10_000) return;
+    if (writePlaybackProgress(
+      localStorage,
+      progressUserId,
+      request.showId,
+      request.episodeId,
+      video.currentTime,
+      video.duration,
+      now,
+    )) {
+      lastProgressWriteRef.current = now;
+    }
+  }, [progressUserId, request.episodeId, request.showId]);
+
+  const applyResumePosition = useCallback((video: HTMLVideoElement) => {
+    if (!currentMp4Stream || resumeAppliedForSourceRef.current === currentMp4Stream) return;
+    if (!Number.isFinite(video.duration) || video.duration <= 0) return;
+
+    const record = readPlaybackProgress(
+      localStorage,
+      progressUserId,
+      request.showId,
+      request.episodeId,
+    );
+    const resumeAt = getResumePosition(record, video.duration);
+    if (resumeAt !== null) video.currentTime = resumeAt;
+    resumeAppliedForSourceRef.current = currentMp4Stream;
+  }, [currentMp4Stream, progressUserId, request.episodeId, request.showId]);
+
+  const selectNativeEnglishAudio = useCallback((video: HTMLVideoElement): "selected" | "unknown" | "foreign" => {
+    type MutableAudioTrack = AudioTrackDescriptor & { enabled?: boolean };
+    type VideoWithAudioTracks = HTMLVideoElement & {
+      audioTracks?: { length: number; [index: number]: MutableAudioTrack };
+    };
+    const audioTracks = (video as VideoWithAudioTracks).audioTracks;
+    if (!audioTracks || audioTracks.length === 0) return "unknown";
+
+    const tracks: MutableAudioTrack[] = [];
+    for (let index = 0; index < audioTracks.length; index += 1) tracks.push(audioTracks[index]);
+    const englishIndex = findEnglishAudioTrackIndex(tracks);
+    if (englishIndex >= 0) {
+      tracks.forEach((track, index) => { track.enabled = index === englishIndex; });
+      return "selected";
+    }
+    return hasOnlyKnownNonEnglishTracks(tracks) ? "foreign" : "unknown";
+  }, []);
+
+  const finishCurrentEpisode = useCallback((advance: boolean) => {
+    if (completionHandledRef.current) return;
+    completionHandledRef.current = true;
+    clearPlaybackProgress(localStorage, progressUserId, request.showId, request.episodeId);
+    onEpisodeComplete?.();
+    if (advance && nextRequest) onPlayNext?.();
+  }, [nextRequest, onEpisodeComplete, onPlayNext, progressUserId, request.episodeId, request.showId]);
 
   const handleExternalPlay = (url: string) => {
     try {
       openExternalPlayer(url);
     } catch (err: any) {
-      setPlaybackError(err.message || "Failed to open external player.");
+      setPlaybackError(err.message || "Failed to open the direct stream.");
       setMode('error');
     }
   };
@@ -182,6 +311,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
 
   const handleClose = useCallback(() => {
     const video = videoRef.current;
+    saveCurrentProgress(true);
     const fullscreenElement = document.fullscreenElement;
     if (
       fullscreenElement &&
@@ -193,7 +323,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     modeRef.current = 'loading';
     stopCurrentVideo();
     onClose();
-  }, [onClose, stopCurrentVideo]);
+  }, [onClose, saveCurrentProgress, stopCurrentVideo]);
 
 
   const handleNextMp4Candidate = useCallback((manual = false) => {
@@ -233,7 +363,11 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
       if (currentMkvs.length > 0) {
         setMode('mkv_transition');
         modeRef.current = 'mkv_transition';
-        setPlaybackError("Automatic playback timed out. VLC-ready options are available.");
+        setPlaybackError(
+          isIOS
+            ? "Automatic playback timed out. iOS fallback sources are available."
+            : "Automatic playback timed out. The remaining sources need a different browser codec or delivery path.",
+        );
         setIsLoading(false);
       } else {
         setMode('error');
@@ -250,7 +384,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
       candidateIndexRef.current = nextIdx;
       resetAttemptState();
       setAutoplayBlocked(false);
-      setStatusText(`Checking MP4 source ${nextIdx + 1} of ${currentMp4s.length}...`);
+      setStatusText(`Checking source ${nextIdx + 1} of ${currentMp4s.length} in NextUp...`);
     } else if (manual && currentMp4s.length > 0) {
       const nextIdx = currentMp4s.length > 1 ? 0 : currentIndex;
       setCandidateIndex(nextIdx);
@@ -267,7 +401,11 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     } else if (currentMkvs.length > 0) {
       setMode('mkv_transition');
       modeRef.current = 'mkv_transition';
-      setPlaybackError("In-app playback was not compatible with these sources. VLC-ready options are available.");
+      setPlaybackError(
+        isIOS
+          ? "The inline iOS sources could not start. External iOS fallbacks are available."
+          : "NextUp tested the available browser sources. The remaining links require conversion or provider headers.",
+      );
       setIsLoading(false);
     } else {
       if (resolutionAttemptRef.current === 0) {
@@ -279,7 +417,26 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
         setIsLoading(false);
       }
     }
-  }, [retrySourceSearch]);
+  }, [isIOS, retrySourceSearch]);
+
+  const chooseInAppCandidate = useCallback((index: number) => {
+    candidateAdvanceLockRef.current = false;
+    playAttemptedForSourceRef.current = false;
+    sourceValidatedRef.current = false;
+    startupDeadlineRef.current = Date.now() + 30_000;
+    setSourceValidated(false);
+    setAutoplayBlocked(false);
+    setHasError(false);
+    setPlaybackError(null);
+    setCandidateIndex(index);
+    candidateIndexRef.current = index;
+    setMode('mp4_play');
+    modeRef.current = 'mp4_play';
+    setIsLoading(true);
+    setStatusText(`Checking source ${index + 1} in NextUp...`);
+    setShowSourceSelector(false);
+    setVideoAttemptKey((attempt) => attempt + 1);
+  }, []);
 
   /**
    * Real-Debrid can occasionally return a short placeholder video stating that
@@ -339,6 +496,15 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     setSourceValidated(false);
     sourceValidatedRef.current = false;
     setIsLoading(true);
+    setResolvedImdbId(request.imdbId || "");
+    setPlaybackClock({ currentTime: 0, duration: 0 });
+    setCreditsCountdown(null);
+    setCreditsAutoplayCancelled(false);
+    setIgnoredSegmentTypes(new Set());
+    completionHandledRef.current = false;
+    nextSourcePrewarmRef.current = "";
+    lastProgressWriteRef.current = 0;
+    resumeAppliedForSourceRef.current = "";
     candidateAdvanceLockRef.current = false;
     playAttemptedForSourceRef.current = false;
     startupDeadlineRef.current = 0;
@@ -407,6 +573,8 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
         if (!active || !activeImdbId || activeImdbId === "none") {
           throw new Error("Unable to locate a valid IMDb ID for this title. Streams cannot be loaded.");
         }
+
+        setResolvedImdbId(activeImdbId);
         
         setStatusText("Finding sources...");
         const forceRefresh = resolutionAttempt > 0;
@@ -418,8 +586,9 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
           throw new Error("No playable sources found.");
         }
 
-        const mp4s = found.filter(c => c.container === 'web-compatible');
-        const mkvs = found.filter(c => c.container !== 'web-compatible');
+        const playbackPlan = partitionPlaybackCandidates(found, playbackEnvironment);
+        const mp4s = playbackPlan.inApp;
+        const mkvs = playbackPlan.fallback;
 
         setCandidates(found);
         candidatesRef.current = found;
@@ -436,7 +605,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
           setSourceValidated(false);
           sourceValidatedRef.current = false;
           setIsLoading(true);
-          setStatusText(`Checking MP4 source 1 of ${mp4s.length}...`);
+          setStatusText(`Checking source 1 of ${mp4s.length} in NextUp...`);
         } else if (mkvs.length > 0) {
           setMode('mkv_transition');
           modeRef.current = 'mkv_transition';
@@ -465,7 +634,26 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
       active = false; 
       controller.abort();
     };
-  }, [request, resolutionAttempt, isIOS]);
+  }, [request, resolutionAttempt, isIOS, playbackEnvironment]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setIntroSegments({});
+    if (request.isMovie || !resolvedImdbId) return () => controller.abort();
+
+    void getIntroDBSegments(
+      resolvedImdbId,
+      request.season,
+      request.number,
+      controller.signal,
+    ).then(setIntroSegments).catch(error => {
+      if ((error as DOMException)?.name !== "AbortError") {
+        console.warn("Intro markers could not be loaded.", error);
+      }
+    });
+
+    return () => controller.abort();
+  }, [request.isMovie, request.number, request.season, resolvedImdbId]);
 
   const attemptPlayback = async () => {
     const video = videoRef.current;
@@ -509,6 +697,90 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     }
   };
 
+  // Safari can mount HLS directly. Desktop Chromium uses hls.js through MSE,
+  // loaded only for an HLS source so the normal player bundle stays lean.
+  useEffect(() => {
+    if (mode !== 'mp4_play' || !currentMp4Stream || !usesHlsAdapter) return;
+
+    const video = videoRef.current;
+    if (!video) return;
+
+    let active = true;
+    let hlsInstance: import("hls.js").default | null = null;
+    let recoveryAttempts = 0;
+
+    void import("hls.js")
+      .then(({ default: Hls }) => {
+        if (!active) return;
+        if (!Hls.isSupported()) {
+          setPlaybackWarning("This browser could not initialize its HLS decoder. Trying another source...");
+          handleNextMp4Candidate();
+          return;
+        }
+
+        const hls = new Hls({
+          enableWorker: true,
+          lowLatencyMode: false,
+          backBufferLength: 90,
+          maxBufferLength: 45,
+        });
+        hlsInstance = hls;
+
+        hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+          if (active) hls.loadSource(currentMp4Stream);
+        });
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          if (!active) return;
+          const tracks = hls.audioTracks.map(track => ({
+            language: track.lang,
+            label: `${track.name || ""} ${track.audioCodec || ""}`.trim(),
+            kind: "main",
+          }));
+          const englishIndex = findEnglishAudioTrackIndex(tracks);
+          if (englishIndex >= 0) {
+            hls.audioTrack = englishIndex;
+          } else if (hasOnlyKnownNonEnglishTracks(tracks)) {
+            setPlaybackWarning("That source contains only non-English audio. Trying another source...");
+            hls.destroy();
+            hlsInstance = null;
+            handleNextMp4Candidate();
+          }
+        });
+        hls.on(Hls.Events.ERROR, (_event, data) => {
+          if (!active || !data.fatal) return;
+
+          if (data.type === Hls.ErrorTypes.MEDIA_ERROR && recoveryAttempts < 1) {
+            recoveryAttempts += 1;
+            hls.recoverMediaError();
+            return;
+          }
+
+          if (data.type === Hls.ErrorTypes.NETWORK_ERROR && recoveryAttempts < 1) {
+            recoveryAttempts += 1;
+            hls.startLoad();
+            return;
+          }
+
+          hls.destroy();
+          hlsInstance = null;
+          setPlaybackWarning("That HLS source stopped responding. Trying the next source...");
+          handleNextMp4Candidate();
+        });
+        hls.attachMedia(video);
+      })
+      .catch((error) => {
+        if (!active) return;
+        console.error("Unable to load the HLS playback adapter", error);
+        setPlaybackWarning("The HLS player could not load. Trying another source...");
+        handleNextMp4Candidate();
+      });
+
+    return () => {
+      active = false;
+      hlsInstance?.destroy();
+    };
+  }, [currentMp4Stream, handleNextMp4Candidate, mode, usesHlsAdapter]);
+
   // Give each direct stream time to expose metadata while it remains hidden.
   useEffect(() => {
     if (mode !== 'mp4_play' || !currentMp4Stream) return;
@@ -519,7 +791,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     setSourceValidated(false);
     setAutoplayBlocked(false);
     setIsLoading(true);
-    setStatusText(`Checking MP4 source ${candidateIndexRef.current + 1} of ${mp4CandidatesRef.current.length}...`);
+    setStatusText(`Checking source ${candidateIndexRef.current + 1} of ${mp4CandidatesRef.current.length} in NextUp...`);
 
     let timeoutDuration = candidateIndexRef.current === 0 ? 15000 : 7000;
     if (startupDeadlineRef.current !== 0) {
@@ -590,6 +862,8 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     };
 
     const handleTimeUpdate = () => {
+      setPlaybackClock({ currentTime: video.currentTime, duration: video.duration });
+      saveCurrentProgress();
       if (!video.paused && video.currentTime > 0) {
         if (!sourceValidatedRef.current) {
           const validation = validateCurrentSource(video);
@@ -611,12 +885,28 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     };
 
     const handleLoadedMetadata = () => {
-      validateCurrentSource(video);
+      const validation = validateCurrentSource(video);
+      if (validation !== "valid") return;
+      const audioSelection = selectNativeEnglishAudio(video);
+      if (audioSelection === "foreign") {
+        setPlaybackWarning("That source contains only non-English audio. Trying another source...");
+        handleNextMp4Candidate();
+        return;
+      }
+      applyResumePosition(video);
+      setPlaybackClock({ currentTime: video.currentTime, duration: video.duration });
     };
 
     const handleCanPlay = () => {
       const validation = validateCurrentSource(video);
       if (validation !== 'valid') return;
+      const audioSelection = selectNativeEnglishAudio(video);
+      if (audioSelection === "foreign") {
+        setPlaybackWarning("That source contains only non-English audio. Trying another source...");
+        handleNextMp4Candidate();
+        return;
+      }
+      applyResumePosition(video);
       
       startupDeadlineRef.current = 0;
 
@@ -640,6 +930,9 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
       }
     };
 
+    const handlePause = () => saveCurrentProgress(true);
+    const handleEnded = () => finishCurrentEpisode(Boolean(nextRequest));
+
     video.addEventListener('waiting', handleWaiting);
     video.addEventListener('stalled', handleWaiting);
     video.addEventListener('playing', handlePlaying);
@@ -652,6 +945,8 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     video.addEventListener('canplay', handleCanPlay);
     video.addEventListener('canplaythrough', handleCanPlay);
     video.addEventListener('error', handleVideoError);
+    video.addEventListener('pause', handlePause);
+    video.addEventListener('ended', handleEnded);
 
     return () => {
       if (stallTimer) clearTimeout(stallTimer);
@@ -667,8 +962,22 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
       video.removeEventListener('canplay', handleCanPlay);
       video.removeEventListener('canplaythrough', handleCanPlay);
       video.removeEventListener('error', handleVideoError);
+      video.removeEventListener('pause', handlePause);
+      video.removeEventListener('ended', handleEnded);
     };
-  }, [currentMp4Stream, mode, autoplayBlocked, handleNextMp4Candidate, isIOS, validateCurrentSource]);
+  }, [
+    applyResumePosition,
+    autoplayBlocked,
+    currentMp4Stream,
+    finishCurrentEpisode,
+    handleNextMp4Candidate,
+    isIOS,
+    mode,
+    nextRequest,
+    saveCurrentProgress,
+    selectNativeEnglishAudio,
+    validateCurrentSource,
+  ]);
 
   useEffect(() => {
     const handleActivity = () => {
@@ -692,7 +1001,86 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     };
   }, []);
 
-  const vlcLabel = isIOS ? "Open in VLC" : "Open video in new tab";
+  const activeSkipSegment = useMemo(() => {
+    const segment = findActiveIntroDBSegment(
+      introSegments,
+      playbackClock.currentTime,
+      playbackClock.duration,
+      ignoredSegmentTypes,
+    );
+    return segment?.type === "intro" || segment?.type === "recap" ? segment : null;
+  }, [ignoredSegmentTypes, introSegments, playbackClock.currentTime, playbackClock.duration]);
+
+  const outroDetected = Boolean(
+    introSegments.outro &&
+    playbackClock.currentTime >= Math.max(0, introSegments.outro.startSeconds - 1) &&
+    playbackClock.currentTime < introSegments.outro.endSeconds,
+  );
+  const offerNextEpisode = shouldOfferNextEpisodeShortcut(
+    playbackClock.duration,
+    playbackClock.currentTime,
+    Boolean(nextRequest),
+  );
+
+  useEffect(() => {
+    if (creditsAutoplayCancelled || creditsCountdown !== null || completionHandledRef.current) return;
+    if (shouldStartCreditsAutoplay(
+      playbackClock.duration,
+      playbackClock.currentTime,
+      Boolean(nextRequest),
+      outroDetected,
+    )) {
+      setCreditsCountdown(CREDITS_AUTOPLAY_COUNTDOWN_SECONDS);
+    }
+  }, [
+    creditsAutoplayCancelled,
+    creditsCountdown,
+    nextRequest,
+    outroDetected,
+    playbackClock.currentTime,
+    playbackClock.duration,
+  ]);
+
+  useEffect(() => {
+    if (!nextRequest?.imdbId || nextRequest.isMovie || playbackClock.currentTime <= 0) return;
+    if (!introSegments.outro && (!Number.isFinite(playbackClock.duration) || playbackClock.duration <= 0)) return;
+    const triggerAt = introSegments.outro
+      ? Math.max(0, introSegments.outro.startSeconds - 180)
+      : Math.max(0, playbackClock.duration - 270);
+    if (!Number.isFinite(triggerAt) || playbackClock.currentTime < triggerAt) return;
+
+    const prewarmKey = `${nextRequest.imdbId}:${nextRequest.season}:${nextRequest.number}`;
+    if (nextSourcePrewarmRef.current === prewarmKey) return;
+    nextSourcePrewarmRef.current = prewarmKey;
+    void getBestTorrentioStream(
+      nextRequest.imdbId,
+      nextRequest.season,
+      nextRequest.number,
+      "series",
+    ).catch(error => {
+      console.warn("The next episode could not be prepared in advance.", error);
+      nextSourcePrewarmRef.current = "";
+    });
+  }, [introSegments.outro, nextRequest, playbackClock.currentTime, playbackClock.duration]);
+
+  useEffect(() => {
+    if (creditsCountdown === null) return;
+    if (creditsCountdown <= 0) {
+      finishCurrentEpisode(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setCreditsCountdown(value => value === null ? null : value - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [creditsCountdown, finishCurrentEpisode]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => saveCurrentProgress(true);
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [saveCurrentProgress]);
+
+  const fallbackActionLabel = isIOS ? "Open in VLC" : "Open direct stream";
+  const fallbackGroupLabel = isIOS ? "iOS fallback" : "Needs conversion";
   const showCloseButton = showUI || mode === 'mkv_transition' || mode === 'error' || isLoading || autoplayBlocked;
   const portalTarget = typeof document === "undefined"
     ? null
@@ -714,6 +1102,11 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[250] bg-emerald-500 text-slate-950 font-bold px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs animate-in fade-in slide-in-from-top-2">
           <Check className="w-4 h-4" />
           <span>Stream URL copied to clipboard!</span>
+        </div>
+      )}
+      {playbackWarning && !copiedUrl && (
+        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[250] max-w-[min(90vw,36rem)] rounded-full border border-amber-400/30 bg-amber-500 px-4 py-2 text-center text-xs font-bold text-slate-950 shadow-2xl animate-in fade-in slide-in-from-top-2">
+          {playbackWarning}
         </div>
       )}
 
@@ -743,20 +1136,22 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
               )}
               {currentMp4Stream && (
                 <div className="flex items-center gap-3 mt-2 pointer-events-auto flex-wrap">
-                  <button
-                    onClick={() => handleExternalPlay(currentMp4Stream)}
-                    className="w-max px-4 py-2 bg-orange-500/80 hover:bg-orange-500 text-slate-900 dark:text-white rounded-full text-sm font-semibold transition-colors flex items-center gap-2 shadow-md"
-                  >
-                    <PlayCircle className="w-4 h-4" />
-                    {vlcLabel}
-                  </button>
+                  {isIOS && (
+                    <button
+                      onClick={() => handleExternalPlay(currentMp4Stream)}
+                      className="w-max px-4 py-2 bg-orange-500/80 hover:bg-orange-500 text-slate-900 dark:text-white rounded-full text-sm font-semibold transition-colors flex items-center gap-2 shadow-md"
+                    >
+                      <PlayCircle className="w-4 h-4" />
+                      Open in VLC
+                    </button>
+                  )}
                   {mp4Candidates.length > 1 && (
                     <button
                       onClick={() => handleNextMp4Candidate(true)}
                       className="w-max px-4 py-2 bg-white/20 hover:bg-white/30 text-white rounded-full text-sm font-semibold transition-colors flex items-center gap-2 backdrop-blur-md border border-white/5"
                     >
                       <RefreshCcw className="w-4 h-4" />
-                      Next MP4 ({candidateIndex + 1}/{mp4Candidates.length})
+                      Next Source ({candidateIndex + 1}/{mp4Candidates.length})
                     </button>
                   )}
                   {mkvCandidates.length > 0 && (
@@ -765,7 +1160,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                       className="w-max px-4 py-2 bg-orange-500/20 hover:bg-orange-500/30 text-orange-400 hover:text-white rounded-full text-sm font-semibold transition-colors flex items-center gap-2 backdrop-blur-md border border-orange-500/30 shadow-lg"
                     >
                       <ExternalLink className="w-4 h-4" />
-                      VLC External Sources ({mkvCandidates.length})
+                      {fallbackGroupLabel} Sources ({mkvCandidates.length})
                     </button>
                   )}
                   <button
@@ -823,7 +1218,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
             <video
               key={`${currentMp4Stream}:${videoAttemptKey}`}
               ref={videoRef}
-              src={currentMp4Stream}
+              src={usesHlsAdapter ? undefined : currentMp4Stream}
               controls
               playsInline
               preload={isIOS ? "metadata" : "auto"}
@@ -850,10 +1245,66 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
               Your browser does not support the video tag.
             </video>
           )}
+
+          {sourceValidated && activeSkipSegment && (
+            <button
+              type="button"
+              onClick={() => {
+                const video = videoRef.current;
+                if (video) video.currentTime = Math.min(activeSkipSegment.endSeconds + 0.1, video.duration || activeSkipSegment.endSeconds + 0.1);
+                setIgnoredSegmentTypes(previous => new Set(previous).add(activeSkipSegment.type));
+              }}
+              className="absolute bottom-20 left-5 sm:left-8 z-[160] flex items-center gap-2 rounded-xl border border-white/20 bg-black/80 px-5 py-3 text-sm font-extrabold text-white shadow-2xl backdrop-blur-md transition hover:bg-orange-500 hover:text-slate-950"
+            >
+              <SkipForward className="h-5 w-5" />
+              Skip {activeSkipSegment.type === "recap" ? "recap" : "intro"}
+            </button>
+          )}
+
+          {sourceValidated && nextRequest && (offerNextEpisode || creditsCountdown !== null) && (
+            <div className="absolute bottom-20 right-5 sm:right-8 z-[160] w-[min(90vw,22rem)] overflow-hidden rounded-2xl border border-white/15 bg-black/85 p-4 text-white shadow-2xl backdrop-blur-xl">
+              <div className="flex items-center gap-3">
+                {(nextRequest.episodeImageUrl || nextRequest.backdropUrl || nextRequest.imageUrl) && (
+                  <img
+                    src={nextRequest.episodeImageUrl || nextRequest.backdropUrl || nextRequest.imageUrl}
+                    alt=""
+                    className="h-16 w-24 shrink-0 rounded-lg object-cover"
+                  />
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10px] font-black uppercase tracking-[0.18em] text-orange-400">
+                    {creditsCountdown !== null ? `Playing next in ${creditsCountdown}` : "Up next"}
+                  </p>
+                  <p className="mt-1 truncate text-sm font-bold">S{nextRequest.season} E{nextRequest.number} · {nextRequest.episodeName}</p>
+                </div>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => finishCurrentEpisode(true)}
+                  className="flex flex-1 items-center justify-center gap-2 rounded-lg bg-orange-500 px-3 py-2.5 text-xs font-black text-slate-950 hover:bg-orange-400"
+                >
+                  <PlayCircle className="h-4 w-4" /> Play next
+                </button>
+                {creditsCountdown !== null && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCreditsAutoplayCancelled(true);
+                      setCreditsCountdown(null);
+                    }}
+                    className="rounded-lg bg-white/10 px-3 py-2.5 text-xs font-bold text-white/80 hover:bg-white/20"
+                  >
+                    Keep watching
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </>
       )}
 
-      {/* MODE: MKV Transition View (VLC External Player Focus) */}
+      {/* MODE: Sources that need an iOS fallback or a conversion-capable delivery path */}
       {mode === 'mkv_transition' && (
         <div className="relative z-[102] h-full overflow-y-auto px-4 py-8 sm:px-8 max-w-4xl mx-auto flex flex-col justify-between">
           <div className="space-y-6 my-auto pt-8">
@@ -867,9 +1318,9 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                 <p className="text-orange-400 font-semibold text-sm">Season {request.season}, Episode {request.number}: {request.episodeName}</p>
               )}
               <p className="text-white/60 text-xs sm:text-sm max-w-lg mx-auto pt-1 leading-relaxed">
-                {mp4Candidates.length > 0 
-                  ? "In-app browser playback for MP4 streams failed. External torrent sources offer higher quality and require an external player like VLC."
-                  : "All available stream sources for this title are in an external format (MKV). These files are played via VLC or an external media player."
+                {isIOS
+                  ? "NextUp keeps iPhone and iPad playback on formats Safari can safely play inline. These remaining sources can be handed to VLC only if you want the fallback."
+                  : "NextUp tried every source this desktop browser could play directly, including Matroska candidates. These remaining links need provider headers, a different codec, or a future conversion service. VLC is not required for normal desktop playback."
                 }
               </p>
             </div>
@@ -902,7 +1353,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                     className="flex-1 py-3.5 px-6 bg-orange-500 hover:bg-orange-600 active:scale-[0.99] text-slate-950 font-extrabold rounded-xl transition-all shadow-xl flex items-center justify-center gap-2 text-sm sm:text-base"
                   >
                     <PlayCircle className="w-5 h-5" />
-                    {vlcLabel} (Top Source)
+                    {fallbackActionLabel} (Top Source)
                   </button>
                   <button
                     onClick={(e) => copyToClipboard(topMkv.url, e)}
@@ -919,7 +1370,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
             {mkvCandidates.length > 0 && (
               <div className="space-y-3 pt-2">
                 <div className="flex items-center justify-between text-xs text-white/70 font-semibold px-1">
-                  <span>Available External Sources ({mkvCandidates.length})</span>
+                  <span>{fallbackGroupLabel} Sources ({mkvCandidates.length})</span>
                 </div>
 
                 <div className="space-y-2.5 max-h-[320px] overflow-y-auto pr-1">
@@ -941,7 +1392,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                           className="px-3.5 py-2 bg-orange-500/80 hover:bg-orange-500 text-slate-950 font-bold rounded-lg text-xs transition-all flex items-center gap-1.5 shadow"
                         >
                           <PlayCircle className="w-3.5 h-3.5" />
-                          <span>VLC</span>
+                          <span>{isIOS ? "VLC" : "Open"}</span>
                         </button>
                         <button
                           onClick={(e) => copyToClipboard(cand.url, e)}
@@ -968,7 +1419,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                 className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-xl transition-all border border-white/10 flex items-center gap-2"
               >
                 <RefreshCcw className="w-4 h-4 text-orange-400" />
-                Retry In-App MP4 Player ({mp4Candidates.length})
+                Retry NextUp Player ({mp4Candidates.length})
               </button>
             )}
             <button
@@ -1005,7 +1456,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                 className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-slate-950 font-extrabold rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
               >
                 <ExternalLink className="w-4 h-4" />
-                Browse VLC Sources ({mkvCandidates.length})
+                Browse {fallbackGroupLabel} Sources ({mkvCandidates.length})
               </button>
             )}
             <button
@@ -1038,7 +1489,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                   All Available Stream Sources
                 </h3>
                 <p className="text-white/60 text-xs mt-1">
-                  {mp4Candidates.length} Browser (MP4) • {mkvCandidates.length} External (VLC)
+                  {mp4Candidates.length} play in NextUp • {mkvCandidates.length} {fallbackGroupLabel.toLowerCase()}
                 </p>
               </div>
               <button 
@@ -1056,9 +1507,9 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                   <div className="flex items-center justify-between text-xs font-bold text-green-400">
                     <span className="flex items-center gap-1.5">
                       <Film className="w-4 h-4" />
-                      In-App MP4 Streams ({mp4Candidates.length})
+                      In-App Streams ({mp4Candidates.length})
                     </span>
-                    <span className="text-[10px] bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">Browser Playable</span>
+                    <span className="text-[10px] bg-green-500/10 px-2 py-0.5 rounded border border-green-500/20">Adaptive browser playback</span>
                   </div>
 
                   <div className="space-y-2">
@@ -1074,20 +1525,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                           }`}
                         >
                           <div className="flex items-center justify-between gap-2 w-full">
-                            <div className="flex items-center gap-2 flex-wrap cursor-pointer flex-1" onClick={() => {
-                              candidateAdvanceLockRef.current = false;
-                              playAttemptedForSourceRef.current = false;
-                              sourceValidatedRef.current = false;
-                              setSourceValidated(false);
-                              setAutoplayBlocked(false);
-                              setCandidateIndex(idx);
-                              candidateIndexRef.current = idx;
-                              setMode('mp4_play');
-                              modeRef.current = 'mp4_play';
-                              setIsLoading(true);
-                              setStatusText("Checking chosen MP4...");
-                              setShowSourceSelector(false);
-                            }}>
+                            <div className="flex items-center gap-2 flex-wrap cursor-pointer flex-1" onClick={() => chooseInAppCandidate(idx)}>
                               <StreamBadges cand={cand} isExternal={false} />
                             </div>
                             
@@ -1101,12 +1539,12 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
-                                    handleExternalPlay(cand.url);
+                                    chooseInAppCandidate(idx);
                                   }}
                                   className="px-2.5 py-1 bg-orange-500/80 hover:bg-orange-500 text-slate-950 font-bold rounded text-[11px] transition-colors flex items-center gap-1"
                                 >
                                   <PlayCircle className="w-3 h-3" />
-                                  VLC
+                                  Play
                                 </button>
                               )}
                               <button
@@ -1119,20 +1557,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                             </div>
                           </div>
                           
-                          <p className="text-white/90 text-xs font-mono leading-relaxed break-all line-clamp-2 cursor-pointer" onClick={() => {
-                            candidateAdvanceLockRef.current = false;
-                            playAttemptedForSourceRef.current = false;
-                            sourceValidatedRef.current = false;
-                            setSourceValidated(false);
-                            setAutoplayBlocked(false);
-                            setCandidateIndex(idx);
-                            candidateIndexRef.current = idx;
-                            setMode('mp4_play');
-                            modeRef.current = 'mp4_play';
-                            setIsLoading(true);
-                            setStatusText("Checking chosen MP4...");
-                            setShowSourceSelector(false);
-                          }}>
+                          <p className="text-white/90 text-xs font-mono leading-relaxed break-all line-clamp-2 cursor-pointer" onClick={() => chooseInAppCandidate(idx)}>
                             {cand.title}
                           </p>
                         </div>
@@ -1142,13 +1567,13 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                 </div>
               )}
 
-              {/* External / VLC Streams Section */}
+              {/* Sources that cannot be mounted directly in this environment */}
               {mkvCandidates.length > 0 && (
                 <div className="space-y-3">
                   <div className="flex items-center justify-between text-xs font-bold text-amber-400">
                     <span className="flex items-center gap-1.5">
                       <Tv className="w-4 h-4" />
-                      External VLC Streams ({mkvCandidates.length})
+                      {fallbackGroupLabel} Sources ({mkvCandidates.length})
                     </span>
                     <span className="text-[10px] bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20">Ranked</span>
                   </div>
@@ -1170,7 +1595,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
                               className="px-2.5 py-1 bg-orange-500/80 hover:bg-orange-500 text-slate-950 font-bold rounded text-[11px] transition-colors flex items-center gap-1"
                             >
                               <PlayCircle className="w-3 h-3" />
-                              VLC
+                              {isIOS ? "VLC" : "Open"}
                             </button>
                             <button
                               onClick={(e) => copyToClipboard(cand.url, e)}

@@ -1,4 +1,5 @@
 import { PlaybackCandidate } from "../types";
+import { isIOSPlaybackEnvironment } from "./playbackCapabilities";
 
 export interface StreamOption {
   name?: string;
@@ -56,6 +57,9 @@ export interface StreamOption {
       quality?: string;
       encode?: string;
       container?: string;
+      audio?: string[];
+      languages?: string[];
+      language?: string;
       season?: number;
       episodes?: number[];
     };
@@ -174,6 +178,46 @@ function getCombinedStreamText(stream: StreamOption): string {
     .map(compactText)
     .filter(Boolean)
     .join(" ");
+}
+
+export type StreamAudioLanguage = "english" | "multi" | "non-english" | "unknown";
+
+const ENGLISH_AUDIO_MARKER = /\b(?:english|eng)\b/i;
+const MULTI_AUDIO_MARKER = /\b(?:multi(?:[ ._-]*(?:audio|lang(?:uage)?))?|dual[ ._-]*audio)\b/i;
+const NON_ENGLISH_AUDIO_MARKER = /\b(?:spanish|espa(?:ñ|n)ol|french|fran(?:ç|c)ais|german|deutsch|italian|portuguese|russian|japanese|korean|chinese|mandarin|cantonese|hindi|tamil|telugu|arabic|turkish|polish|dutch|ukrainian|czech|thai|vietnamese|indonesian|latino)\b/i;
+
+export function getStreamAudioLanguage(stream: StreamOption): StreamAudioLanguage {
+  const parsedFile = stream.streamData?.parsedFile;
+  const structured = [
+    ...(Array.isArray(parsedFile?.languages) ? parsedFile.languages : []),
+    ...(Array.isArray(parsedFile?.audio) ? parsedFile.audio : []),
+    parsedFile?.language || "",
+  ].map(value => String(value).trim().toLowerCase());
+
+  if (structured.some(value => value === "en" || value === "eng" || value === "english" || value.startsWith("en-"))) {
+    return "english";
+  }
+
+  const text = `${getCombinedStreamText(stream)} ${structured.join(" ")}`;
+  const foreignAudioContext = new RegExp(
+    `(?:${NON_ENGLISH_AUDIO_MARKER.source})[ ._\\-]*(?:audio|dub(?:bed)?)|(?:audio|lang(?:uage)?)[ :=._\\-]*(?:${NON_ENGLISH_AUDIO_MARKER.source})|(?:🌐|🔊)[ :._\\-]*(?:${NON_ENGLISH_AUDIO_MARKER.source})`,
+    "i",
+  );
+  const foreignWithEnglishSubtitles = new RegExp(
+    `(?:${NON_ENGLISH_AUDIO_MARKER.source}).{0,24}\\b(?:english|eng)[ ._\\-]*(?:sub(?:title)?s?|softsub)\\b`,
+    "i",
+  );
+  const hasForeignMarker = foreignAudioContext.test(text) || foreignWithEnglishSubtitles.test(text);
+  const englishSubtitleOnly = /\b(?:english|eng)[ ._-]*(?:sub(?:title)?s?|softsub)\b/i.test(text);
+  const explicitEnglishAudio = /\b(?:english|eng)[ ._-]*(?:audio|dub(?:bed)?)\b/i.test(text);
+  if (hasForeignMarker && englishSubtitleOnly && !explicitEnglishAudio && !MULTI_AUDIO_MARKER.test(text)) return "non-english";
+  if (ENGLISH_AUDIO_MARKER.test(text)) return "english";
+  if (MULTI_AUDIO_MARKER.test(text) || structured.some(value => value === "mul" || value.includes("multi") || value.includes("dual"))) return "multi";
+  if (hasForeignMarker) return "non-english";
+
+  const knownForeignTags = new Set(["es", "spa", "fr", "fra", "fre", "de", "deu", "ger", "it", "ita", "pt", "por", "ru", "rus", "ja", "jpn", "ko", "kor", "zh", "zho", "chi", "hi", "hin", "ta", "tam", "te", "tel", "ar", "ara", "tr", "tur", "pl", "pol", "nl", "nld", "uk", "ukr", "cs", "ces", "th", "tha", "vi", "vie", "id", "ind"]);
+  if (structured.some(value => knownForeignTags.has(value))) return "non-english";
+  return "unknown";
 }
 
 function getStreamSizeGB(stream: StreamOption): number | null {
@@ -363,16 +407,63 @@ function getDirectStreamUrl(
 
 export type BrowserCompatibility = 'compatible' | 'external' | 'unknown';
 
+export interface StreamMediaMetadata {
+  container?: string;
+  videoCodec?: string;
+  audioCodec?: string;
+}
+
+export function getStreamMediaMetadata(stream: StreamOption): StreamMediaMetadata {
+  const parsedFile = stream.streamData?.parsedFile;
+  const text = `${getCombinedStreamText(stream)} ${getDirectStreamUrl(stream) || ""}`.toLowerCase();
+  let container = parsedFile?.container?.trim().toLowerCase();
+
+  if (container === "matroska") container = "mkv";
+  if (!container) {
+    if (/\bmkv\b|\.mkv\b/.test(text)) container = "mkv";
+    else if (/\bavi\b|\.avi\b/.test(text)) container = "avi";
+    else if (/\bwmv\b|\.wmv\b/.test(text)) container = "wmv";
+    else if (/\bflv\b|\.flv\b/.test(text)) container = "flv";
+    else if (/\bm2ts\b|\.m2ts\b/.test(text)) container = "m2ts";
+    else if (/\.m3u8(?:\b|\?|#)/.test(text)) container = "hls";
+    else if (/\.ts(?:\b|\?|#)/.test(text)) container = "ts";
+    else if (/\bvob\b|\.vob\b/.test(text)) container = "vob";
+    else if (/\bmp4\b|\.mp4\b/.test(text)) container = "mp4";
+    else if (/\bwebm\b|\.webm\b/.test(text)) container = "webm";
+    else if (/\bm4v\b|\.m4v\b/.test(text)) container = "m4v";
+    else if (/\bmov\b|\.mov\b/.test(text)) container = "mov";
+  }
+
+  const declaredVideo = parsedFile?.encode?.trim().toLowerCase() || "";
+  let videoCodec: string | undefined;
+  if (/\bhevc\b|\bh[ ._-]?265\b|\bx265\b/.test(`${declaredVideo} ${text}`)) videoCodec = "hevc";
+  else if (/\bavc\b|\bh[ ._-]?264\b|\bx264\b/.test(`${declaredVideo} ${text}`)) videoCodec = "h264";
+  else if (/\bav1\b/.test(`${declaredVideo} ${text}`)) videoCodec = "av1";
+  else if (/\bvp9\b/.test(`${declaredVideo} ${text}`)) videoCodec = "vp9";
+  else if (/\bvp8\b/.test(`${declaredVideo} ${text}`)) videoCodec = "vp8";
+
+  const declaredAudio = (parsedFile?.audio || []).join(" ").toLowerCase();
+  const audioText = `${declaredAudio} ${text}`;
+  let audioCodec: string | undefined;
+  if (/\btruehd\b/.test(audioText)) audioCodec = "truehd";
+  else if (/\bdts(?:-hd)?\b/.test(audioText)) audioCodec = "dts";
+  else if (/\be-?ac-?3\b|\bddp\b/.test(audioText)) audioCodec = "eac3";
+  else if (/\bac-?3\b|\bdd\b/.test(audioText)) audioCodec = "ac3";
+  else if (/\baac\b/.test(audioText)) audioCodec = "aac";
+  else if (/\bopus\b/.test(audioText)) audioCodec = "opus";
+  else if (/\bvorbis\b/.test(audioText)) audioCodec = "vorbis";
+  else if (/\bflac\b/.test(audioText)) audioCodec = "flac";
+  else if (/\bmp3\b/.test(audioText)) audioCodec = "mp3";
+
+  return { container, videoCodec, audioCodec };
+}
+
 export function getBrowserCompatibility(
   stream: StreamOption
 ): BrowserCompatibility {
   const directUrl = getDirectStreamUrl(stream);
 
   if (!directUrl) {
-    return 'external';
-  }
-
-  if (stream.behaviorHints?.notWebReady === true) {
     return 'external';
   }
 
@@ -384,47 +475,27 @@ export function getBrowserCompatibility(
     return 'external';
   }
 
-  const parsedFile = stream.streamData?.parsedFile;
-  let container = parsedFile?.container?.toLowerCase();
-  const encode = parsedFile?.encode?.toLowerCase();
-  const audio = Array.isArray((parsedFile as any)?.audio) ? (parsedFile as any).audio.map((a: string) => a.toLowerCase()) : [];
-
-  const text = (getCombinedStreamText(stream) + " " + directUrl).toLowerCase();
-
-  if (!container) {
-    if (/\bmkv\b|\.mkv\b/.test(text)) container = 'mkv';
-    else if (/\bavi\b|\.avi\b/.test(text)) container = 'avi';
-    else if (/\bwmv\b|\.wmv\b/.test(text)) container = 'wmv';
-    else if (/\bflv\b|\.flv\b/.test(text)) container = 'flv';
-    else if (/\bm2ts\b|\.m2ts\b/.test(text)) container = 'm2ts';
-    else if (/\.ts\b/.test(text)) container = 'ts';
-    else if (/\bvob\b|\.vob\b/.test(text)) container = 'vob';
-    else if (/\bmp4\b|\.mp4\b/.test(text)) container = 'mp4';
-    else if (/\bwebm\b|\.webm\b/.test(text)) container = 'webm';
-    else if (/\bm4v\b|\.m4v\b/.test(text)) container = 'm4v';
-    else if (/\bmov\b|\.mov\b/.test(text)) container = 'mov';
+  if (stream.behaviorHints?.notWebReady === true) {
+    return 'unknown';
   }
+
+  const metadata = getStreamMediaMetadata(stream);
+  const { container, videoCodec, audioCodec } = metadata;
 
   if (container) {
-    if (['mkv', 'avi', 'wmv', 'flv', 'ts', 'm2ts', 'vob'].includes(container)) {
+    if (['avi', 'wmv', 'flv', 'ts', 'm2ts', 'vob'].includes(container)) {
       return 'external';
     }
-    
-    if (['mp4', 'm4v', 'mov', 'webm'].includes(container)) {
-      // Check for clearly incompatible codecs inside web-friendly containers
-      const hasHevc = encode === 'hevc' || encode === 'h265' || /\bhevc\b|\bh265\b|\bx265\b/.test(text);
-      const hasIncompatibleAudio = audio.some((a: string) => ['dts', 'truehd', 'flac'].includes(a)) || 
-                                   /\bdts\b|\btruehd\b|\bflac\b/.test(text);
-      
-      if (hasHevc || hasIncompatibleAudio) {
-         return 'external';
-      }
+
+    // Matroska and hardware-decoded codecs are runtime capabilities. They
+    // should be tested on desktop instead of being permanently routed to VLC.
+    if (container === 'mkv' || videoCodec === 'hevc' || ['dts', 'truehd', 'ac3', 'eac3'].includes(audioCodec || '')) {
+      return 'unknown';
+    }
+
+    if (['mp4', 'm4v', 'mov', 'webm', 'hls'].includes(container)) {
       return 'compatible';
     }
-  }
-
-  if (/\bhevc\b|\bh265\b|\bx265\b/.test(text) || /\bdts\b|\btruehd\b|\bflac\b/.test(text)) {
-    return 'external';
   }
 
   return 'unknown';
@@ -702,6 +773,23 @@ export function calculateStreamScore(
     score += 50_000;
   } else if (cacheState === 'uncached') {
     score -= 500_000; // Heavily penalize uncached so they fall to the very bottom
+  }
+
+  const audioLanguage = getStreamAudioLanguage(stream);
+  if (audioLanguage === "english") {
+    score += 250_000;
+  } else if (audioLanguage === "multi") {
+    score += 100_000;
+  } else if (audioLanguage === "non-english") {
+    score -= 750_000;
+  }
+
+  if (!mobile) {
+    const quality = getQualityLabel(stream).toLowerCase();
+    if (quality.includes("2160") || quality.includes("4k") || quality.includes("uhd")) score += 4_000;
+    else if (quality.includes("1440")) score += 2_500;
+    else if (quality.includes("1080")) score += 1_500;
+    else if (quality.includes("720")) score += 500;
   }
 
   // Exact episode / season match bonus
@@ -1058,6 +1146,17 @@ async function fetchBestStreamImpl(
     );
   }
 
+  // Reject only releases that explicitly identify their audio as foreign-only.
+  // Unknown releases remain eligible because many English uploads omit tags;
+  // the player performs a second check against embedded audio tracks.
+  const languageEligibleStreams = streamsToProcess.filter(
+    stream => getStreamAudioLanguage(stream) !== "non-english"
+  );
+
+  if (languageEligibleStreams.length === 0) {
+    throw new Error("No source with English or selectable multilingual audio was found.");
+  }
+
   const mobile = isMobileClient();
 
   interface PlaybackCandidateInternal extends PlaybackCandidate {
@@ -1065,7 +1164,7 @@ async function fetchBestStreamImpl(
 }
 
   const playbackCandidates: PlaybackCandidateInternal[] =
-    streamsToProcess.map((stream, index) => {
+    languageEligibleStreams.map((stream, index) => {
       const directUrl = getDirectStreamUrl(stream);
 
       /*
@@ -1078,8 +1177,9 @@ async function fetchBestStreamImpl(
         );
       }
 
-      const browserEligible =
-        getBrowserCompatibility(stream) === 'compatible';
+      const browserCompatibility = getBrowserCompatibility(stream);
+      const browserEligible = browserCompatibility === 'compatible';
+      const mediaMetadata = getStreamMediaMetadata(stream);
 
       const seeders =
         getStreamSeeders(stream);
@@ -1088,6 +1188,7 @@ async function fetchBestStreamImpl(
         getQualityLabel(stream);
 
       const parsedInfo = parseStreamInfo(stream);
+      const audioLanguage = getStreamAudioLanguage(stream);
 
       return {
         id: stream.infoHash?.trim()
@@ -1110,10 +1211,16 @@ async function fetchBestStreamImpl(
           ? "web-compatible"
           : "external",
 
+        mediaContainer: mediaMetadata.container,
+        videoCodec: mediaMetadata.videoCodec,
+        audioCodec: mediaMetadata.audioCodec,
+        browserCompatibility,
+        requiresCustomHeaders: Boolean(stream.behaviorHints?.proxyHeaders),
+
         score: calculateStreamScore(
           stream,
           index,
-          streamsToProcess.length,
+          languageEligibleStreams.length,
           mobile,
           type,
           season,
@@ -1123,11 +1230,17 @@ async function fetchBestStreamImpl(
 
         seeders,
         readiness: parsedInfo.readiness,
-        provider: parsedInfo.provider
+        provider: parsedInfo.provider,
+        audioLanguage: audioLanguage === "non-english" ? "unknown" : audioLanguage,
       };
     });
 
   playbackCandidates.sort((first, second) => {
+    const languageTier = { english: 3, multi: 2, unknown: 1 };
+    const firstLanguageTier = languageTier[first.audioLanguage || "unknown"];
+    const secondLanguageTier = languageTier[second.audioLanguage || "unknown"];
+    if (firstLanguageTier !== secondLanguageTier) return secondLanguageTier - firstLanguageTier;
+
     const tier = { cached: 2, unknown: 1, uncached: 0 };
     const firstTier = tier[first.cacheState];
     const secondTier = tier[second.cacheState];
@@ -1180,12 +1293,7 @@ export function openExternalPlayer(
     );
   }
 
-  const isIOS =
-    /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
-    (
-      navigator.platform === "MacIntel" &&
-      navigator.maxTouchPoints > 1
-    );
+  const isIOS = isIOSPlaybackEnvironment();
 
   const isAndroid =
     /Android/i.test(navigator.userAgent);

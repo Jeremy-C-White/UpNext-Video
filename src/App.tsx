@@ -32,6 +32,27 @@ import { Tv, Search, LogOut, Settings, CheckCircle2, PlayCircle, Clock, External
 import { calculateProgress, isEpisodeReleased, getEpisodeReleaseTime, getReleasedEpisodes } from "./lib/episodes";
 import { format, isFuture, formatDistanceToNow } from "date-fns";
 import { registerSW } from "virtual:pwa-register";
+import { findNextReleasedEpisode } from "./lib/autoplay";
+
+function createPlaybackRequest(show: UserShow, episode: UserEpisode): PlaybackRequest {
+  return {
+    showId: show.id,
+    showName: show.name,
+    isMovie: show.isMovie,
+    imdbId: show.imdbId && show.imdbId !== "none" ? show.imdbId : undefined,
+    _tmdbId: show._tmdbId,
+    tvmazeId: show.tvmazeId,
+    episodeId: episode.id,
+    season: episode.season,
+    number: episode.number,
+    episodeName: episode.name,
+    imageUrl: show.imageUrl,
+    backdropUrl: show.backdropUrl,
+    episodeImageUrl: episode.imageUrl,
+    summary: episode.summary || show.summary,
+    provider: show.provider,
+  };
+}
 
 function ScrollRow({ children }: { children: ReactNode }) {
   const trackRef = useRef<HTMLDivElement>(null);
@@ -143,17 +164,9 @@ export default function App() {
     }
     if (!show) return;
     
-    setPlaybackRequest({
-      showId: show.id,
-      showName: show.name,
-      isMovie: show.isMovie,
-      imdbId: imdbId && imdbId !== "none" ? imdbId : undefined,
-      _tmdbId: show._tmdbId,
-      tvmazeId: show.tvmazeId,
-      season: episode.season,
-      number: episode.number,
-      episodeName: episode.name,
-    });
+    const nextRequest = createPlaybackRequest(show, episode);
+    nextRequest.imdbId = imdbId && imdbId !== "none" ? imdbId : nextRequest.imdbId;
+    setPlaybackRequest(nextRequest);
   };
 
   useEffect(() => {
@@ -790,6 +803,32 @@ const loadWithFallback = async (
     return { upNext: upNextRaw, comingSoon: horizonRaw, tonight: tonightRaw, filteredLibrary: lib };
   }, [shows, episodesMap, libraryFilter, librarySort, librarySearch]);
 
+  const nextPlaybackRequest = useMemo(() => {
+    if (!playbackRequest || playbackRequest.isMovie) return null;
+
+    const show = shows.find(candidate => candidate.id === playbackRequest.showId) ||
+      (detailsShow?.id === playbackRequest.showId ? detailsShow : null);
+    if (!show) return null;
+
+    const nextEpisode = findNextReleasedEpisode(
+      episodesMap[show.id] || show.episodes || [],
+      playbackRequest,
+    );
+    return nextEpisode ? createPlaybackRequest(show, nextEpisode) : null;
+  }, [detailsShow, episodesMap, playbackRequest, shows]);
+
+  const handlePlaybackCompleted = () => {
+    if (!playbackRequest || playbackRequest.isMovie) return;
+    const show = shows.find(candidate => candidate.id === playbackRequest.showId) ||
+      (detailsShow?.id === playbackRequest.showId ? detailsShow : null);
+    const currentEpisode = (episodesMap[playbackRequest.showId] || show?.episodes || [])
+      .find(episode => episode.id === playbackRequest.episodeId);
+
+    if (show && currentEpisode && !currentEpisode.watched) {
+      void toggleWatched(show.id, currentEpisode.id, true);
+    }
+  };
+
   const storeDiscovery = useMemo(
     () => [
       ...trendingShows,
@@ -826,9 +865,14 @@ const loadWithFallback = async (
       imdbId: owned?.imdbId || source.externals?.imdb || undefined,
       _tmdbId: owned?._tmdbId || source._tmdbId,
       tvmazeId: owned?.tvmazeId ?? source.id,
+      episodeId: source.isMovie ? "movie" : `${source.id}:1:1`,
       season: 1,
       number: 1,
       episodeName: source.isMovie ? "Movie" : "Episode 1",
+      imageUrl: owned?.imageUrl || item.posterUrl || source.image?.original || source.image?.medium,
+      backdropUrl: owned?.backdropUrl || item.backdropUrl,
+      summary: owned?.summary || source.summary,
+      provider: owned?.provider || source.network?.name || source.webChannel?.name,
     });
   };
 
@@ -1581,6 +1625,11 @@ const loadWithFallback = async (
             <VideoPlayerModal
               key={`${playbackRequest.showId}:${playbackRequest.season}:${playbackRequest.number}`}
               request={playbackRequest}
+              nextRequest={nextPlaybackRequest}
+              onEpisodeComplete={handlePlaybackCompleted}
+              onPlayNext={() => {
+                if (nextPlaybackRequest) setPlaybackRequest(nextPlaybackRequest);
+              }}
               onClose={() => setPlaybackRequest(null)}
               overStore={isStoreOpen}
             />
