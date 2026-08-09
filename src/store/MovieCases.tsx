@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { DVD_CASE_DEPTH, DVD_CASE_HEIGHT, DVD_CASE_WIDTH } from "./layout";
 import { usePosterTexture, usePosterTextureArray } from "./posterTextures";
-import type { StoreMedia } from "./types";
+import type { InspectControls, StoreMedia } from "./types";
 
 const caseGeometry = new RoundedBoxGeometry(DVD_CASE_WIDTH, DVD_CASE_HEIGHT, DVD_CASE_DEPTH, 4, 0.0015);
 const heldCaseGeometry = new RoundedBoxGeometry(0.142, 0.202, 0.017, 4, 0.0018);
@@ -195,6 +195,57 @@ function CaseBodies({ items, selectedId }: { items: StoreMedia[]; selectedId: st
   );
 }
 
+function CaseClearSleeves({ items, hoveredId, selectedId }: { items: StoreMedia[]; hoveredId: string | null; selectedId: string | null }) {
+  const ref = useRef<THREE.InstancedMesh>(null);
+  const geometry = useMemo(() => new THREE.PlaneGeometry(DVD_CASE_WIDTH * 0.975, DVD_CASE_HEIGHT * 0.985), []);
+
+  useLayoutEffect(() => {
+    if (!ref.current) return;
+    const matrix = new THREE.Matrix4();
+    const position = new THREE.Vector3();
+    const quaternion = new THREE.Quaternion();
+    const scale = new THREE.Vector3();
+    const euler = new THREE.Euler();
+    items.forEach((item, index) => {
+      const hovered = item.id === hoveredId;
+      const selected = item.id === selectedId;
+      const normalX = Math.sin(item.placement.rotationY);
+      const normalZ = Math.cos(item.placement.rotationY);
+      const faceOffset = DVD_CASE_DEPTH / 2 + 0.00075 + (hovered ? 0.004 : 0);
+      position.set(
+        item.placement.position[0] + normalX * faceOffset,
+        item.placement.position[1],
+        item.placement.position[2] + normalZ * faceOffset,
+      );
+      euler.set(0, item.placement.rotationY, item.placement.rotationZ, "YXZ");
+      quaternion.setFromEuler(euler);
+      scale.setScalar(selected ? 0.001 : item.placement.scale * (hovered ? 1.08 : 1));
+      matrix.compose(position, quaternion, scale);
+      ref.current!.setMatrixAt(index, matrix);
+    });
+    ref.current.count = items.length;
+    ref.current.instanceMatrix.needsUpdate = true;
+    ref.current.computeBoundingSphere();
+  }, [hoveredId, items, selectedId]);
+
+  useEffect(() => () => geometry.dispose(), [geometry]);
+  return (
+    <instancedMesh ref={ref} args={[geometry, undefined, items.length]} renderOrder={3}>
+      <meshPhysicalMaterial
+        color="#eaf5ff"
+        transparent
+        opacity={0.115}
+        depthWrite={false}
+        roughness={0.12}
+        metalness={0}
+        clearcoat={1}
+        clearcoatRoughness={0.075}
+        envMapIntensity={1.15}
+      />
+    </instancedMesh>
+  );
+}
+
 function wrapText(context: CanvasRenderingContext2D, text: string, x: number, y: number, maxWidth: number, lineHeight: number, maxLines: number) {
   const words = text.split(/\s+/);
   let line = "";
@@ -293,7 +344,15 @@ function createRentalStickerTexture() {
   return texture;
 }
 
-export function HeldCase({ item, flipped }: { item: StoreMedia | null; flipped: boolean }) {
+export function HeldCase({
+  item,
+  flipped,
+  inspectControls,
+}: {
+  item: StoreMedia | null;
+  flipped: boolean;
+  inspectControls: { current: InspectControls };
+}) {
   const group = useRef<THREE.Group>(null);
   const heldLight = useRef<THREE.PointLight>(null);
   const { camera, gl } = useThree();
@@ -304,7 +363,8 @@ export function HeldCase({ item, flipped }: { item: StoreMedia | null; flipped: 
   const lightTarget = useMemo(() => new THREE.Vector3(), []);
   const targetQuaternion = useMemo(() => new THREE.Quaternion(), []);
   const flipQuaternion = useMemo(() => new THREE.Quaternion(), []);
-  const yAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
+  const inspectQuaternion = useMemo(() => new THREE.Quaternion(), []);
+  const inspectEuler = useMemo(() => new THREE.Euler(0, 0, 0, "YXZ"), []);
 
   useEffect(() => () => backTexture?.dispose(), [backTexture]);
   useEffect(() => () => rentalSticker.dispose(), [rentalSticker]);
@@ -321,12 +381,15 @@ export function HeldCase({ item, flipped }: { item: StoreMedia | null; flipped: 
     if (!group.current || !heldLight.current) return;
     heldLight.current.intensity = THREE.MathUtils.damp(heldLight.current.intensity, item ? 0.78 : 0, 12, delta);
     if (!item) return;
-    targetPosition.set(-0.22, -0.1, -0.58).applyQuaternion(camera.quaternion).add(camera.position);
+    const controls = inspectControls.current;
+    targetPosition.set(-0.22, -0.1, -controls.distance).applyQuaternion(camera.quaternion).add(camera.position);
     lightTarget.set(-0.08, 0.11, -0.34).applyQuaternion(camera.quaternion).add(camera.position);
     heldLight.current.position.lerp(lightTarget, 1 - Math.exp(-12 * delta));
     targetQuaternion.copy(camera.quaternion);
-    flipQuaternion.setFromAxisAngle(yAxis, flipped ? Math.PI : 0);
-    targetQuaternion.multiply(flipQuaternion);
+    inspectEuler.set(controls.pitch, controls.yaw, controls.roll, "YXZ");
+    inspectQuaternion.setFromEuler(inspectEuler);
+    flipQuaternion.setFromAxisAngle(THREE.Object3D.DEFAULT_UP, flipped ? Math.PI : 0);
+    targetQuaternion.multiply(inspectQuaternion).multiply(flipQuaternion);
     group.current.position.lerp(targetPosition, 1 - Math.exp(-10 * delta));
     group.current.quaternion.slerp(targetQuaternion, 1 - Math.exp(-9 * delta));
     const targetScale = 1.1;
@@ -416,6 +479,7 @@ export function MovieCases({ items, hoveredId, selectedId }: { items: StoreMedia
       {batches.map((batch, index) => (
         <PosterBatch key={`${index}:${batch[0]?.id || "empty"}`} items={batch} hoveredId={hoveredId} selectedId={selectedId} />
       ))}
+      <CaseClearSleeves items={items} hoveredId={hoveredId} selectedId={selectedId} />
       <HoverCaseLight item={hoveredItem} />
     </group>
   );

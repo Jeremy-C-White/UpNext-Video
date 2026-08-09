@@ -1,10 +1,10 @@
 import { useEffect, useRef } from "react";
 import { AdaptiveDpr, ContactShadows } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { Bloom, EffectComposer, N8AO, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { Bloom, DepthOfField, EffectComposer, N8AO, Noise, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
-import type { StoreMedia, PlayerPose, Vec3Tuple } from "./types";
+import type { InspectControls, StoreMedia, PlayerPose, Vec3Tuple } from "./types";
 import { GuidePath } from "./GuidePath";
 import { HeldCase, MovieCases } from "./MovieCases";
 import { StoreController } from "./StoreController";
@@ -18,6 +18,7 @@ interface Props {
   hoveredId: string | null;
   selected: StoreMedia | null;
   flipped: boolean;
+  inspectControls: { current: InspectControls };
   paused: boolean;
   playerPose: PlayerPose;
   guideTarget: Vec3Tuple | null;
@@ -84,7 +85,7 @@ function TextureQualityController() {
   return null;
 }
 
-export function StorePostProcessing() {
+export function StorePostProcessing({ inspecting }: { inspecting: boolean }) {
   return (
     <EffectComposer multisampling={0} resolutionScale={0.75}>
       <N8AO
@@ -104,6 +105,15 @@ export function StorePostProcessing() {
         luminanceSmoothing={0.18}
         radius={0.55}
       />
+      {inspecting && (
+        <DepthOfField
+          worldFocusDistance={0.58}
+          worldFocusRange={0.24}
+          bokehScale={1.55}
+          resolutionScale={0.5}
+        />
+      )}
+      <Noise opacity={0.022} />
       <Vignette eskil={false} offset={0.2} darkness={0.22} />
       <SMAA />
       <ToneMapping mode={ToneMappingMode.AGX} />
@@ -118,10 +128,10 @@ export function StoreScene(props: Props) {
       <StoreLighting />
       <StoreEnvironment entered={props.entered} />
       <MovieCases items={props.items} hoveredId={props.hoveredId} selectedId={selected?.id || null} />
-      <HeldCase item={selected} flipped={props.flipped} />
+      <HeldCase item={selected} flipped={props.flipped} inspectControls={props.inspectControls} />
       <GuidePath start={[playerPose.x, 0.035, playerPose.z]} target={guideTarget} />
       <ContactShadows position={[0, 0.025, 0]} scale={38} opacity={0.24} blur={2.7} far={6.5} resolution={512} frames={1} />
-      <StorePostProcessing />
+      <StorePostProcessing inspecting={Boolean(selected)} />
       <AdaptiveDpr />
       <TextureQualityController />
       <RendererWarmup enabled={props.prewarm} onReady={props.onReady} />

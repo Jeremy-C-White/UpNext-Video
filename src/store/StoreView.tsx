@@ -1,5 +1,5 @@
 import { Component, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ErrorInfo, ReactNode } from "react";
+import type { ErrorInfo, PointerEvent as ReactPointerEvent, ReactNode, WheelEvent as ReactWheelEvent } from "react";
 import { Canvas } from "@react-three/fiber";
 import * as THREE from "three";
 import { DoorOpen } from "lucide-react";
@@ -10,7 +10,7 @@ import { PLAYER_SPAWN } from "./layout";
 import { StoreAudioBus } from "./StoreAudio";
 import { StoreHUD } from "./StoreHUD";
 import { StoreScene } from "./StoreScene";
-import type { PlayerPose, StoreMedia } from "./types";
+import type { InspectControls, PlayerPose, StoreMedia } from "./types";
 import "./store.css";
 
 interface Props {
@@ -76,6 +76,8 @@ export default function StoreView({
   const [canvasElement, setCanvasElement] = useState<HTMLCanvasElement | null>(null);
   const [playerPose, setPlayerPose] = useState<PlayerPose>({ x: PLAYER_SPAWN[0], y: PLAYER_SPAWN[1], z: PLAYER_SPAWN[2], yaw: 0 });
   const audio = useRef<StoreAudioBus | null>(null);
+  const inspectControls = useRef<InspectControls>({ yaw: 0, pitch: 0, roll: 0, distance: 0.58 });
+  const inspectDrag = useRef({ active: false, x: 0, y: 0 });
 
   useEffect(() => {
     let active = true;
@@ -156,6 +158,7 @@ export default function StoreView({
   }, [canvasElement, requestPointerLock]);
 
   const selectCase = useCallback((id: string) => {
+    inspectControls.current = { yaw: 0, pitch: 0, roll: 0, distance: 0.58 };
     setSelectedId(id);
     setFlipped(false);
     audio.current?.playCasePickup();
@@ -163,6 +166,8 @@ export default function StoreView({
   }, []);
 
   const returnCase = useCallback(() => {
+    inspectDrag.current.active = false;
+    inspectControls.current = { yaw: 0, pitch: 0, roll: 0, distance: 0.58 };
     setSelectedId(null);
     setFlipped(false);
   }, []);
@@ -194,6 +199,41 @@ export default function StoreView({
 
   const markRendererReady = useCallback(() => setRendererReady(true), []);
   const scenePaused = paused || tabHidden;
+
+  const startInspectDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return;
+    inspectDrag.current = { active: true, x: event.clientX, y: event.clientY };
+    event.currentTarget.setPointerCapture(event.pointerId);
+  }, []);
+
+  const moveInspectDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    if (!inspectDrag.current.active) return;
+    const dx = event.clientX - inspectDrag.current.x;
+    const dy = event.clientY - inspectDrag.current.y;
+    inspectDrag.current.x = event.clientX;
+    inspectDrag.current.y = event.clientY;
+    const controls = inspectControls.current;
+    if (event.shiftKey) {
+      controls.roll = THREE.MathUtils.clamp(controls.roll + dx * 0.008, -Math.PI, Math.PI);
+    } else {
+      controls.yaw += dx * 0.012;
+      controls.pitch = THREE.MathUtils.clamp(controls.pitch + dy * 0.01, -1.18, 1.18);
+    }
+  }, []);
+
+  const endInspectDrag = useCallback((event: ReactPointerEvent<HTMLDivElement>) => {
+    inspectDrag.current.active = false;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+  }, []);
+
+  const zoomInspectCase = useCallback((event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    inspectControls.current.distance = THREE.MathUtils.clamp(
+      inspectControls.current.distance + event.deltaY * 0.00055,
+      0.42,
+      0.74,
+    );
+  }, []);
 
   if (unsupported) {
     return (
@@ -228,6 +268,7 @@ export default function StoreView({
               hoveredId={hoveredId}
               selected={selected}
               flipped={flipped}
+              inspectControls={inspectControls}
               paused={scenePaused || finderOpen || mapOpen || !entered}
               playerPose={playerPose}
               guideTarget={guide ? guide.placement.position : null}
@@ -244,6 +285,19 @@ export default function StoreView({
           </Canvas>
         </Suspense>
       </StoreCanvasBoundary>
+
+      {selected && !paused && (
+        <div
+          className="store-inspect-gesture-layer"
+          aria-label="Rotate the selected case"
+          onPointerDown={startInspectDrag}
+          onPointerMove={moveInspectDrag}
+          onPointerUp={endInspectDrag}
+          onPointerCancel={endInspectDrag}
+          onDoubleClick={() => setFlipped((value) => !value)}
+          onWheel={zoomInspectCase}
+        />
+      )}
 
       {!entered && !rendererFailed && (
         <div className="store-entry-screen">

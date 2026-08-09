@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { X, PlayCircle, RefreshCcw, List, Check, Database, Copy, ExternalLink, Film, Tv } from "lucide-react";
 import { openExternalPlayer, getBestTorrentioStream } from "../lib/debrid";
 import { PlaybackRequest, PlaybackCandidate } from "../types";
@@ -65,11 +66,12 @@ function StreamBadges({ cand, isExternal }: { cand: PlaybackCandidate, isExterna
 interface VideoPlayerModalProps {
   request: PlaybackRequest;
   onClose: () => void;
+  overStore?: boolean;
 }
 
 type PlayerMode = 'loading' | 'mp4_play' | 'mkv_transition' | 'error';
 
-export function VideoPlayerModal({ request, onClose }: VideoPlayerModalProps) {
+export function VideoPlayerModal({ request, onClose, overStore = false }: VideoPlayerModalProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const isIOS = /iPad|iPhone|iPod/i.test(navigator.userAgent) ||
     (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -637,9 +639,21 @@ export function VideoPlayerModal({ request, onClose }: VideoPlayerModalProps) {
 
   const vlcLabel = isIOS ? "Open in VLC" : "Open video in new tab";
   const showCloseButton = showUI || mode === 'mkv_transition' || mode === 'error' || isLoading || autoplayBlocked;
+  const portalTarget = typeof document === "undefined"
+    ? null
+    : document.fullscreenElement instanceof HTMLElement
+      ? document.fullscreenElement
+      : document.body;
 
-  return (
-    <div className="fixed inset-0 z-[100] bg-slate-950">
+  if (!portalTarget) return null;
+
+  return createPortal((
+    <div className={`fixed inset-0 z-[100] ${overStore ? "bg-slate-950/90 backdrop-blur-[3px]" : "bg-slate-950"}`}>
+      {overStore && (
+        <div className="absolute bottom-5 left-5 z-[199] pointer-events-none rounded-full border border-white/15 bg-black/55 px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-white/65 shadow-xl">
+          Showroom paused · close player to return to your case
+        </div>
+      )}
       {/* Toast Notification for Copied Link */}
       {copiedUrl && (
         <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[250] bg-emerald-500 text-slate-950 font-bold px-4 py-2 rounded-full shadow-2xl flex items-center gap-2 text-xs animate-in fade-in slide-in-from-top-2">
@@ -1128,5 +1142,5 @@ export function VideoPlayerModal({ request, onClose }: VideoPlayerModalProps) {
         </div>
       )}
     </div>
-  );
+  ), portalTarget);
 }

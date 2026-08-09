@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { RoundedBox } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { sectionHeight, sectionWidth, STORE_SECTIONS } from "./layout";
 import type { StoreSectionDefinition } from "./types";
 
@@ -122,6 +123,59 @@ function createSurfaceTexture(kind: "tile" | "carpet" | "ceiling" | "wall", roug
   texture.colorSpace = roughness ? THREE.NoColorSpace : THREE.SRGBColorSpace;
   texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
   texture.anisotropy = 4;
+  return texture;
+}
+
+function createShelfBackTexture(roughness = false) {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1024;
+  canvas.height = 512;
+  const context = canvas.getContext("2d")!;
+  let seed = 7717;
+  const random = () => {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    return seed / 4294967296;
+  };
+  context.fillStyle = roughness ? "#a9a9a9" : "#17356f";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+
+  if (!roughness) {
+    const wash = context.createLinearGradient(0, 0, 0, canvas.height);
+    wash.addColorStop(0, "rgba(255,255,255,.09)");
+    wash.addColorStop(0.45, "rgba(255,255,255,.015)");
+    wash.addColorStop(1, "rgba(0,7,28,.18)");
+    context.fillStyle = wash;
+    context.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  for (let y = 14; y < canvas.height; y += 24) {
+    for (let x = 14; x < canvas.width; x += 24) {
+      const jitterX = (random() - 0.5) * 0.7;
+      const jitterY = (random() - 0.5) * 0.7;
+      context.beginPath();
+      context.arc(x + jitterX, y + jitterY, roughness ? 3.1 : 3.6, 0, Math.PI * 2);
+      context.fillStyle = roughness ? "#444" : "#06132e";
+      context.fill();
+      if (!roughness) {
+        context.beginPath();
+        context.arc(x - 0.8, y - 0.8, 1.1, 0, Math.PI * 2);
+        context.fillStyle = "rgba(205,224,255,.36)";
+        context.fill();
+      }
+    }
+  }
+
+  for (let index = 0; index < 240; index += 1) {
+    const value = roughness ? 90 + Math.round(random() * 90) : 100 + Math.round(random() * 95);
+    context.fillStyle = roughness
+      ? `rgba(${value},${value},${value},.16)`
+      : `rgba(${value},${value + 18},${Math.min(255, value + 48)},.055)`;
+    context.fillRect(random() * 1024, random() * 512, 1 + random() * 12, 0.5 + random());
+  }
+
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = roughness ? THREE.NoColorSpace : THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
   return texture;
 }
 
@@ -267,14 +321,48 @@ function ShelfTalker({ accent, width }: { accent: string; width: number }) {
   );
 }
 
+function createSpinePrintTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 128;
+  canvas.height = 512;
+  const context = canvas.getContext("2d")!;
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "rgba(244,236,213,.92)";
+  context.fillRect(14, 18, 16, 466);
+  context.fillStyle = "rgba(255,255,255,.78)";
+  context.fillRect(92, 24, 19, 112);
+  context.fillStyle = "rgba(245,238,218,.94)";
+  const marks = [
+    [43, 28, 34, 7], [43, 41, 46, 6], [43, 54, 30, 6],
+    [43, 93, 39, 8], [43, 109, 52, 6], [43, 122, 42, 6],
+    [43, 173, 49, 7], [43, 187, 33, 6], [43, 200, 44, 6],
+    [43, 266, 39, 7], [43, 280, 51, 6], [43, 294, 29, 6],
+    [43, 352, 47, 7], [43, 367, 34, 6], [43, 380, 52, 6],
+  ];
+  marks.forEach(([x, y, width, height]) => context.fillRect(x, y, width, height));
+  context.strokeStyle = "rgba(246,238,213,.82)";
+  context.lineWidth = 5;
+  context.strokeRect(88, 424, 25, 52);
+  context.fillStyle = "rgba(235,222,190,.68)";
+  context.fillRect(40, 451, 36, 25);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 8;
+  texture.minFilter = THREE.LinearMipmapLinearFilter;
+  return texture;
+}
+
 function ShelfSpines({ section, width }: { section: StoreSectionDefinition; width: number }) {
   const countPerRow = Math.max(1, Math.floor((width - 0.12) / 0.022));
   const count = countPerRow * section.rows;
   const ref = useRef<THREE.InstancedMesh>(null);
-  const geometry = useMemo(() => new THREE.BoxGeometry(0.016, 0.184, 0.013), []);
-  const palette = useMemo(() => ["#152b52", "#9f2731", "#d6cba8", "#263b26", "#bb8732", "#4a345f", "#1c1d22"].map((color) => new THREE.Color(color)), []);
+  const printRef = useRef<THREE.InstancedMesh>(null);
+  const geometry = useMemo(() => new RoundedBoxGeometry(0.016, 0.184, 0.013, 2, 0.00075), []);
+  const printGeometry = useMemo(() => new THREE.PlaneGeometry(0.014, 0.17), []);
+  const printTexture = useMemo(() => createSpinePrintTexture(), []);
+  const palette = useMemo(() => ["#102442", "#842a32", "#b9ae8c", "#263c2b", "#a67932", "#493754", "#171a20", "#d4d0bd", "#4b6179"].map((color) => new THREE.Color(color)), []);
   useLayoutEffect(() => {
-    if (!ref.current) return;
+    if (!ref.current || !printRef.current) return;
     const matrix = new THREE.Matrix4();
     const position = new THREE.Vector3();
     const quaternion = new THREE.Quaternion();
@@ -283,39 +371,102 @@ function ShelfSpines({ section, width }: { section: StoreSectionDefinition; widt
     for (let row = 0; row < section.rows; row += 1) {
       for (let column = 0; column < countPerRow; column += 1) {
         const index = row * countPerRow + column;
+        const hash = (salt: number) => {
+          const value = Math.sin((index * 117.37 + row * 53.11 + salt * 19.73) * 12.9898) * 43758.5453;
+          return value - Math.floor(value);
+        };
         const x = -width / 2 + 0.07 + column * ((width - 0.14) / Math.max(1, countPerRow - 1));
-        const y = ((section.rows - 1) / 2 - row) * section.rowGap;
-        position.set(x, y, 0.045 + ((index * 17) % 7) * 0.0005);
-        euler.set(0, ((index * 13) % 9 - 4) * 0.002, ((index * 29) % 7 - 3) * 0.002);
+        const baseY = ((section.rows - 1) / 2 - row) * section.rowGap;
+        const isGap = hash(1) < 0.035 || (column + row * 7) % 89 === 0;
+        const heightScale = 0.91 + hash(2) * 0.105;
+        const widthScale = isGap ? 0.035 : 0.72 + hash(3) * 0.78;
+        const depthScale = isGap ? 0.05 : 0.78 + hash(4) * 0.62;
+        const clusterLean = Math.sin(Math.floor(column / 7) * 1.71 + row) * 0.018;
+        const lean = isGap ? 0 : clusterLean + (hash(5) - 0.5) * 0.055;
+        scale.set(widthScale, isGap ? 0.035 : heightScale, depthScale);
+        position.set(
+          x + (hash(6) - 0.5) * 0.0035,
+          baseY - (1 - heightScale) * 0.092,
+          0.043 + hash(7) * 0.007,
+        );
+        euler.set(0, (hash(8) - 0.5) * 0.035, lean);
         quaternion.setFromEuler(euler);
         matrix.compose(position, quaternion, scale);
         ref.current.setMatrixAt(index, matrix);
-        ref.current.setColorAt(index, palette[(index * 11 + row) % palette.length]);
+        ref.current.setColorAt(index, palette[Math.floor(hash(9) * palette.length) % palette.length]);
+        position.z += 0.0068 * depthScale + 0.00035;
+        scale.set(isGap ? 0.001 : widthScale, isGap ? 0.001 : heightScale, 1);
+        matrix.compose(position, quaternion, scale);
+        printRef.current.setMatrixAt(index, matrix);
+        const ink = 0.72 + hash(10) * 0.28;
+        printRef.current.setColorAt(index, new THREE.Color(ink, ink * (0.96 + hash(11) * 0.04), ink * 0.9));
       }
     }
     ref.current.instanceMatrix.needsUpdate = true;
     if (ref.current.instanceColor) ref.current.instanceColor.needsUpdate = true;
     ref.current.computeBoundingSphere();
+    printRef.current.instanceMatrix.needsUpdate = true;
+    if (printRef.current.instanceColor) printRef.current.instanceColor.needsUpdate = true;
+    printRef.current.computeBoundingSphere();
   }, [countPerRow, palette, section, width]);
-  useEffect(() => () => geometry.dispose(), [geometry]);
+  useEffect(() => () => {
+    geometry.dispose();
+    printGeometry.dispose();
+    printTexture.dispose();
+  }, [geometry, printGeometry, printTexture]);
   return (
-    <instancedMesh ref={ref} args={[geometry, undefined, count]} castShadow receiveShadow>
-      <meshStandardMaterial vertexColors roughness={0.64} metalness={0.01} />
-    </instancedMesh>
+    <group>
+      <instancedMesh ref={ref} args={[geometry, undefined, count]} castShadow receiveShadow>
+        <meshPhysicalMaterial
+          vertexColors
+          roughness={0.39}
+          metalness={0.015}
+          clearcoat={0.82}
+          clearcoatRoughness={0.22}
+          envMapIntensity={0.82}
+        />
+      </instancedMesh>
+      <instancedMesh ref={printRef} args={[printGeometry, undefined, count]} renderOrder={2}>
+        <meshStandardMaterial
+          map={printTexture}
+          vertexColors
+          transparent
+          alphaTest={0.12}
+          roughness={0.62}
+          metalness={0}
+          polygonOffset
+          polygonOffsetFactor={-1}
+        />
+      </instancedMesh>
+    </group>
   );
 }
 
 function ShelfFixture({ section }: { section: StoreSectionDefinition }) {
   const width = sectionWidth(section);
   const height = sectionHeight(section);
+  const backColor = useMemo(() => createShelfBackTexture(false), []);
+  const backRoughness = useMemo(() => createShelfBackTexture(true), []);
+  useEffect(() => () => {
+    backColor.dispose();
+    backRoughness.dispose();
+  }, [backColor, backRoughness]);
   return (
     <group position={section.center} rotation={[0, section.rotationY, 0]} name={`fixture-${section.id}`}>
       <RoundedBox args={[width, height, 0.055]} position={[0, 0, -0.045]} radius={0.003} smoothness={4} castShadow receiveShadow>
-        <meshStandardMaterial color="#173c86" roughness={0.52} metalness={0.08} />
+        <meshStandardMaterial
+          map={backColor}
+          roughnessMap={backRoughness}
+          bumpMap={backRoughness}
+          bumpScale={-0.0014}
+          color="#d8e1f2"
+          roughness={0.48}
+          metalness={0.1}
+        />
       </RoundedBox>
       <ShelfSpines section={section} width={width} />
       {Array.from({ length: section.rows + 1 }, (_, index) => {
-        const y = (section.rows / 2 - index) * section.rowGap - 0.02;
+        const y = (section.rows / 2 - index) * section.rowGap + 0.035;
         return (
           <RoundedBox
             key={index}

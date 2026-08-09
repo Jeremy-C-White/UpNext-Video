@@ -1560,6 +1560,7 @@ const loadWithFallback = async (
         <VideoPlayerModal 
           request={playbackRequest}
           onClose={() => setPlaybackRequest(null)}
+          overStore={isStoreOpen}
         />
       )}
 

@@ -160,7 +160,7 @@ function InspectPanel({
         )}
       </div>
       <button className="store-flip-button" onClick={onFlip}><RotateCcw /> {flipped ? "Show front cover" : "Flip to back cover"}</button>
-      <div className="store-inspect-hint">Right click or Esc to return the case</div>
+      <div className="store-inspect-hint">Drag to rotate · Wheel to zoom · Shift-drag to roll · Double-click to flip · Esc to return</div>
     </aside>
   );
 }
@@ -248,4 +248,3 @@ export function StoreHUD(props: Props) {
     </div>
   );
 }
-

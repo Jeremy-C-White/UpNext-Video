@@ -130,6 +130,15 @@
 .store-hud { position: absolute; inset: 0; z-index: 5; pointer-events: none; }
 .store-hud button, .store-hud input, .store-hud aside, .store-modal-backdrop, .store-pause-card, .store-guide-chip { pointer-events: auto; }
 
+.store-inspect-gesture-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  cursor: grab;
+  touch-action: none;
+}
+.store-inspect-gesture-layer:active { cursor: grabbing; }
+
 .store-hud-header {
   position: absolute;
   top: 0;

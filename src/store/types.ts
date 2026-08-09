@@ -53,6 +53,13 @@ export interface PlayerPose {
   yaw: number;
 }
 
+export interface InspectControls {
+  yaw: number;
+  pitch: number;
+  roll: number;
+  distance: number;
+}
+
 export interface StoreSectionDefinition {
   id: string;
   department: StoreDepartment;
