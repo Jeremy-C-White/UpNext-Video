@@ -682,7 +682,7 @@ export function StoreEnvironment({ entered }: { entered: boolean }) {
   return (
     <group name="nextup-video-store">
       <color attach="background" args={["#10171b"]} />
-      <fog attach="fog" args={["#c8d6cc", 19, 34]} />
+      <fog attach="fog" args={["#c2d0c8", 8, 22]} />
       <FloorSurfaces />
       <CeilingSurface />
       <StoreWalls />

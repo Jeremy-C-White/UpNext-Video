@@ -101,7 +101,7 @@ function PosterBatch({ items, hoveredId, selectedId }: { items: StoreMedia[]; ho
   const ref = useRef<THREE.InstancedMesh>(null);
   const geometry = useMemo(() => {
     return new THREE.PlaneGeometry(DVD_CASE_WIDTH * 0.94, DVD_CASE_HEIGHT * 0.955);
-  }, [items]);
+  }, []);
   const material = useMemo(() => createPosterArrayMaterial(textureArray), [textureArray]);
   const itemIds = useMemo(() => items.map((item) => item.id), [items]);
 

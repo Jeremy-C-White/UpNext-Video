@@ -1,5 +1,5 @@
 import { useMemo, useRef } from "react";
-import { BakeShadows, Environment, Lightformer, SoftShadows } from "@react-three/drei";
+import { Environment, Lightformer } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
@@ -9,8 +9,8 @@ RectAreaLightUniformsLib.init();
 
 function StoreImageBasedLighting() {
   return (
-    <Environment resolution={256} background={false} environmentIntensity={0.46}>
-      <color attach="background" args={["#11191b"]} />
+    <Environment resolution={256} background={false} environmentIntensity={0.72}>
+      <color attach="background" args={["#26343a"]} />
       {[-5, 0, 5].map((x) => (
         <Lightformer
           key={x}
@@ -30,20 +30,24 @@ function StoreImageBasedLighting() {
 
 function TrofferLight({ x, z, flicker = false }: { x: number; z: number; flicker?: boolean }) {
   const light = useRef<THREE.RectAreaLight>(null);
-  const nominalPower = 1450;
+  const width = 5.8;
+  const height = 5.6;
+  // Match the pre-shrink brightness without coupling the result to R3F's prop
+  // assignment order for RectAreaLight.power, width, and height.
+  const nominalIntensity = 720 / (width * height * Math.PI);
   useFrame(({ clock }) => {
     if (!light.current || !flicker) return;
     const drop = Math.sin(clock.elapsedTime * 37) > 0.82 ? 0.2 : 1;
-    light.current.power = THREE.MathUtils.lerp(light.current.power, nominalPower * drop, 0.24);
+    light.current.intensity = THREE.MathUtils.lerp(light.current.intensity, nominalIntensity * drop, 0.24);
   });
   return (
     <rectAreaLight
       ref={light}
       position={[x, 3.28, z]}
       rotation={[-Math.PI / 2, 0, 0]}
-      width={5.8}
-      height={5.6}
-      power={nominalPower}
+      width={width}
+      height={height}
+      intensity={nominalIntensity}
       color="#d9f1df"
     />
   );
@@ -68,7 +72,7 @@ function AisleShadowLight({ x, z }: { x: number; z: number }) {
         decay={2}
         color="#d9f1df"
         castShadow
-        shadow-mapSize={[1536, 1536]}
+        shadow-mapSize={[1024, 1024]}
         shadow-bias={-0.0007}
         shadow-normalBias={0.018}
       />
@@ -77,12 +81,14 @@ function AisleShadowLight({ x, z }: { x: number; z: number }) {
 }
 
 export function StoreLighting() {
+  // Drei 10.7's SoftShadows mutates a Three.js shader chunk using an obsolete
+  // r185 layout and makes every Standard/Physical material fail compilation.
+  // StoreView's native PCFSoftShadowMap is the compatible soft-shadow path.
   return (
     <group name="store-lighting">
-      <SoftShadows size={22} samples={8} focus={0.78} />
       <StoreImageBasedLighting />
       <hemisphereLight args={["#d8e7df", "#172036", 0.24]} />
-      <ambientLight color="#bfd0c7" intensity={0.045} />
+      <ambientLight color="#bfd0c7" intensity={0.075} />
       <TrofferLight x={-4.2} z={-5.8} flicker />
       <TrofferLight x={4.2} z={-5.8} />
       <TrofferLight x={-4.2} z={5.8} />
@@ -101,7 +107,6 @@ export function StoreLighting() {
         shadow-camera-bottom={-12}
         shadow-bias={-0.0004}
       />
-      <BakeShadows />
     </group>
   );
 }

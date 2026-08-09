@@ -252,13 +252,22 @@ export default function StoreView({
              dpr={[0.75, 1.5]}
              performance={{ min: 0.5, max: 1, debounce: 200 }}
             frameloop={scenePaused ? "never" : "always"}
-            camera={{ fov: 53, near: 0.06, far: 78, position: PLAYER_SPAWN }}
+            camera={{ fov: 53, near: 0.06, far: 40, position: PLAYER_SPAWN }}
             gl={{ antialias: true, alpha: false, powerPreference: "high-performance", stencil: false }}
             onCreated={({ gl }) => {
               gl.outputColorSpace = THREE.SRGBColorSpace;
-              gl.toneMapping = THREE.AgXToneMapping;
-              gl.toneMappingExposure = 0.86;
+              // EffectComposer owns the final AgX pass. Keeping the renderer
+              // linear avoids two device-dependent tone-mapping paths.
+              gl.toneMapping = THREE.NoToneMapping;
               gl.shadowMap.type = THREE.PCFSoftShadowMap;
+              gl.debug.onShaderError = (context, program, vertexShader, fragmentShader) => {
+                console.error("NEXTUP VIDEO shader compilation failed", {
+                  program: context.getProgramInfoLog(program),
+                  vertex: context.getShaderInfoLog(vertexShader),
+                  fragment: context.getShaderInfoLog(fragmentShader),
+                });
+                setRendererFailed(true);
+              };
               setCanvasElement(gl.domElement);
             }}
           >

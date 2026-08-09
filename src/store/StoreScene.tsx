@@ -90,9 +90,9 @@ export function StorePostProcessing({ inspecting }: { inspecting: boolean }) {
     <EffectComposer multisampling={4}>
       <N8AO
         quality="medium"
-        aoRadius={1.02}
-        distanceFalloff={0.95}
-        intensity={1.65}
+        aoRadius={0.42}
+        distanceFalloff={0.9}
+        intensity={1.05}
         aoSamples={12}
         denoiseSamples={6}
         denoiseRadius={10}
@@ -128,7 +128,7 @@ export function StoreScene(props: Props) {
       <MovieCases items={props.items} hoveredId={props.hoveredId} selectedId={selected?.id || null} />
       <HeldCase item={selected} flipped={props.flipped} inspectControls={props.inspectControls} />
       <GuidePath start={[playerPose.x, 0.035, playerPose.z]} target={guideTarget} />
-      <ContactShadows position={[0, 0.025, 0]} scale={18} opacity={0.24} blur={2.7} far={6.5} resolution={512} frames={1} />
+      <ContactShadows position={[0, 0.025, 0]} scale={[15, 22]} opacity={0.2} blur={2.5} far={1.6} resolution={512} frames={1} />
       <StorePostProcessing inspecting={Boolean(selected)} />
       <AdaptiveDpr />
       <TextureQualityController />
