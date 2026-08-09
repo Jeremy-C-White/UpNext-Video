@@ -881,7 +881,6 @@ export function StoreEnvironment({ entered }: { entered: boolean }) {
       <CheckoutArea />
       <SnackArea />
       <PromoDisplay position={[4.85, 0, 2.7]} color="#d43b3b" label="COMING SOON" />
-      <PromoDisplay position={[0, 0, -8.25]} color="#224fa5" label="BE KIND, REWIND" />
     </group>
   );
 }

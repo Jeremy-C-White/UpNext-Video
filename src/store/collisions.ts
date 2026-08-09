@@ -43,7 +43,6 @@ export const STATIC_COLLIDERS: CollisionBox[] = [
   boxFromCenter(4.7, 8.1, 4.3, 1.08),
   boxFromCenter(-4.8, 8.1, 3.5, 0.72),
   boxFromCenter(4.85, 2.7, 1.1, 0.38),
-  boxFromCenter(0, -8.25, 1.1, 0.38),
 ];
 
 export function circleIntersectsBox(x: number, z: number, radius: number, box: CollisionBox) {

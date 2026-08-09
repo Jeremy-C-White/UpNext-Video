@@ -9,8 +9,9 @@ import type { InspectControls, StoreMedia } from "./types";
 const caseGeometry = new RoundedBoxGeometry(DVD_CASE_WIDTH, DVD_CASE_HEIGHT, DVD_CASE_DEPTH, 4, 0.0015);
 const heldCaseGeometry = new RoundedBoxGeometry(0.142, 0.202, 0.017, 4, 0.0018);
 const MAX_POSTERS_PER_BATCH = 128;
-const HOVER_CASE_OFFSET = 0.026;
-const HOVER_CASE_SCALE = 1.42;
+const HOVER_CASE_OFFSET = 0.13;
+const HOVER_CASE_SCALE = 1.36;
+const HOVER_CASE_LIFT = 0.055;
 
 function createScratchNormalTexture() {
   const size = 128;
@@ -103,15 +104,17 @@ function PosterBatch({ items, hoveredId, selectedId }: { items: StoreMedia[]; ho
       const selected = item.id === selectedId;
       const normalX = Math.sin(item.placement.rotationY);
       const normalZ = Math.cos(item.placement.rotationY);
-      const faceOffset = DVD_CASE_DEPTH / 2 + 0.00025 + (hovered ? HOVER_CASE_OFFSET : 0);
+      const displayScale = item.placement.scale * (hovered ? HOVER_CASE_SCALE : 1);
+      const centerOffset = hovered ? HOVER_CASE_OFFSET : 0;
+      const faceOffset = centerOffset + DVD_CASE_DEPTH / 2 * displayScale + 0.00025;
       position.set(
         item.placement.position[0] + normalX * faceOffset,
-        item.placement.position[1],
+        item.placement.position[1] + (hovered ? HOVER_CASE_LIFT : 0),
         item.placement.position[2] + normalZ * faceOffset,
       );
       euler.set(0, item.placement.rotationY, item.placement.rotationZ, "YXZ");
       quaternion.setFromEuler(euler);
-      scale.setScalar(selected ? 0.001 : item.placement.scale * (hovered ? HOVER_CASE_SCALE : 1));
+      scale.setScalar(selected ? 0.001 : displayScale);
       matrix.compose(position, quaternion, scale);
       ref.current!.setMatrixAt(index, matrix);
       ref.current!.setColorAt(index, new THREE.Color(hovered ? "#fff8e2" : "#ffffff"));
@@ -147,7 +150,7 @@ function CaseBodies({ items, hoveredId, selectedId }: { items: StoreMedia[]; hov
       const hoverOffset = hovered ? HOVER_CASE_OFFSET : 0;
       position.set(
         item.placement.position[0] + Math.sin(item.placement.rotationY) * hoverOffset,
-        item.placement.position[1],
+        item.placement.position[1] + (hovered ? HOVER_CASE_LIFT : 0),
         item.placement.position[2] + Math.cos(item.placement.rotationY) * hoverOffset,
       );
       euler.set(0, item.placement.rotationY, item.placement.rotationZ, "YXZ");
@@ -185,15 +188,17 @@ function CaseClearSleeves({ items, hoveredId, selectedId }: { items: StoreMedia[
       const selected = item.id === selectedId;
       const normalX = Math.sin(item.placement.rotationY);
       const normalZ = Math.cos(item.placement.rotationY);
-      const faceOffset = DVD_CASE_DEPTH / 2 + 0.00075 + (hovered ? HOVER_CASE_OFFSET : 0);
+      const displayScale = item.placement.scale * (hovered ? HOVER_CASE_SCALE : 1);
+      const centerOffset = hovered ? HOVER_CASE_OFFSET : 0;
+      const faceOffset = centerOffset + DVD_CASE_DEPTH / 2 * displayScale + 0.00075;
       position.set(
         item.placement.position[0] + normalX * faceOffset,
-        item.placement.position[1],
+        item.placement.position[1] + (hovered ? HOVER_CASE_LIFT : 0),
         item.placement.position[2] + normalZ * faceOffset,
       );
       euler.set(0, item.placement.rotationY, item.placement.rotationZ, "YXZ");
       quaternion.setFromEuler(euler);
-      scale.setScalar(selected ? 0.001 : item.placement.scale * (hovered ? HOVER_CASE_SCALE : 1));
+      scale.setScalar(selected ? 0.001 : displayScale);
       matrix.compose(position, quaternion, scale);
       ref.current!.setMatrixAt(index, matrix);
     });

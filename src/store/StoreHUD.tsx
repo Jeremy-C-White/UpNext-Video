@@ -199,7 +199,7 @@ export function StoreHUD(props: Props) {
   return (
     <div className="store-hud" aria-live="polite">
       <header className="store-hud-header">
-        <div className="store-logo-lockup"><b>NEXTUP</b><span>VIDEO</span><small>Open late · Be kind</small></div>
+        <div className="store-logo-lockup"><b>NEXTUP</b><span>VIDEO</span><small>Open late · Browse awhile</small></div>
         <div className="store-header-actions">
           <button onClick={props.onOpenFinder}><Search /> Finder <kbd>F</kbd></button>
           <button onClick={props.onOpenMap}><MapIcon /> Map <kbd>M</kbd></button>
