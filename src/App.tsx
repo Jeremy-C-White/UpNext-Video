@@ -171,14 +171,46 @@ export default function App() {
   }, [toast]);
 
   useEffect(() => {
+    let controllerChanged = false;
+    const handleControllerChange = () => {
+      if (controllerChanged) return;
+      controllerChanged = true;
+      window.location.reload();
+    };
+    navigator.serviceWorker?.addEventListener('controllerchange', handleControllerChange);
+
     const updateSW = registerSW({
       immediate: true,
       onNeedRefresh() {
+        const applyUpdate = async () => {
+          setToast({ message: 'Installing update...' });
+          try {
+            await updateSW();
+          } catch (error) {
+            console.error('Service worker update failed', error);
+          }
+
+          // Older NextUp workers did not handle SKIP_WAITING. If control has
+          // not changed after a short grace period, remove that stuck
+          // registration and reload once from the network.
+          window.setTimeout(async () => {
+            if (controllerChanged) return;
+            try {
+              const registration = await navigator.serviceWorker?.getRegistration();
+              if (registration?.waiting) {
+                await registration.unregister();
+              }
+            } catch (error) {
+              console.error('Service worker recovery failed', error);
+            }
+            window.location.reload();
+          }, 5000);
+        };
         setToast({
           message: 'Update available',
           action: {
             label: 'Refresh',
-            onClick: () => updateSW(true)
+            onClick: () => { void applyUpdate(); }
           }
         });
       },
@@ -189,6 +221,10 @@ export default function App() {
         console.error("Service worker registration failed", error);
       }
     });
+
+    return () => {
+      navigator.serviceWorker?.removeEventListener('controllerchange', handleControllerChange);
+    };
   }, []);
 const STREAMING_NETWORKS = [
   { id: 213, name: "Netflix" },
