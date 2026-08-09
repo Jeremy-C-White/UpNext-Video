@@ -67,18 +67,16 @@ type PlaybackType = "series" | "movie";
 type ImportMetaWithEnv = ImportMeta & { env?: { VITE_AIOSTREAMS_BASE_URL?: string; }; };
 
 const REQUEST_TIMEOUT_MS = 55_000;
+const PROVIDER_VALIDATION_TIMEOUT_MS = 20_000;
 const BYTES_PER_GB = 1024 ** 3;
 
 const INLINE_AIOSTREAMS_BASE_URL = "";
 
-export function getAioStreamsBaseUrl(): string {
-  const localUrl = typeof window !== "undefined" ? localStorage.getItem("aiostreams_base_url")?.trim() : null;
-  const environmentUrl = (import.meta as ImportMetaWithEnv).env?.VITE_AIOSTREAMS_BASE_URL?.trim();
-  const configuredUrl = localUrl || environmentUrl || INLINE_AIOSTREAMS_BASE_URL.trim();
-  if (!configuredUrl) {
-    throw new Error("AIOStreams is not configured. Set VITE_AIOSTREAMS_BASE_URL or configure it in Settings.");
-  }
-  const normalizedUrl = configuredUrl.replace(/\/manifest\.json(?:\?.*)?$/i, "").replace(/\/+$/, "");
+export function normalizeAioStreamsBaseUrl(configuredUrl: string): string {
+  const normalizedUrl = configuredUrl
+    .trim()
+    .replace(/\/(?:manifest\.json|configure)(?:\?.*)?$/i, "")
+    .replace(/\/+$/, "");
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(normalizedUrl);
@@ -89,6 +87,74 @@ export function getAioStreamsBaseUrl(): string {
     throw new Error("The configured AIOStreams URL must use HTTPS.");
   }
   return normalizedUrl;
+}
+
+export function getAioStreamsManifestUrl(configuredUrl: string): string {
+  return `${normalizeAioStreamsBaseUrl(configuredUrl)}/manifest.json`;
+}
+
+export async function validateAioStreamsProvider(configuredUrl: string): Promise<string> {
+  const normalizedUrl = normalizeAioStreamsBaseUrl(configuredUrl);
+  const manifestUrl = `${normalizedUrl}/manifest.json`;
+  const controller = new AbortController();
+  const timeoutId = globalThis.setTimeout(() => controller.abort(), PROVIDER_VALIDATION_TIMEOUT_MS);
+  const requestInit: RequestInit = {
+    cache: "no-store",
+    headers: { Accept: "application/json" },
+    signal: controller.signal,
+  };
+  let response: Response;
+
+  try {
+    try {
+      // Configured Stremio manifests normally allow CORS. Going direct first
+      // avoids a static host's missing /api route being mistaken for a bad addon.
+      response = await fetch(manifestUrl, requestInit);
+    } catch (directError) {
+      if (controller.signal.aborted) throw directError;
+      const proxyUrl = `/api/debrid/stream?url=${encodeURIComponent(manifestUrl)}`;
+      response = await fetch(proxyUrl, requestInit);
+    }
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error("Provider validation timed out. Please try again.");
+    }
+    throw new Error("Unable to reach the provider manifest from this browser.");
+  } finally {
+    globalThis.clearTimeout(timeoutId);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Provider manifest unreachable (HTTP ${response.status})`);
+  }
+
+  let manifest: unknown;
+  try {
+    manifest = await response.json();
+  } catch {
+    throw new Error("The provider returned a response that was not a valid Stremio manifest.");
+  }
+  if (
+    !manifest ||
+    typeof manifest !== "object" ||
+    typeof (manifest as { id?: unknown }).id !== "string" ||
+    typeof (manifest as { name?: unknown }).name !== "string" ||
+    !Array.isArray((manifest as { resources?: unknown }).resources)
+  ) {
+    throw new Error("The provider returned an invalid Stremio manifest.");
+  }
+
+  return normalizedUrl;
+}
+
+export function getAioStreamsBaseUrl(): string {
+  const localUrl = typeof window !== "undefined" ? localStorage.getItem("aiostreams_base_url")?.trim() : null;
+  const environmentUrl = (import.meta as ImportMetaWithEnv).env?.VITE_AIOSTREAMS_BASE_URL?.trim();
+  const configuredUrl = localUrl || environmentUrl || INLINE_AIOSTREAMS_BASE_URL.trim();
+  if (!configuredUrl) {
+    throw new Error("AIOStreams is not configured. Set VITE_AIOSTREAMS_BASE_URL or configure it in Settings.");
+  }
+  return normalizeAioStreamsBaseUrl(configuredUrl);
 }
 
 function compactText(value?: string): string {

@@ -1,5 +1,10 @@
 import { expect, test, describe, vi, beforeEach, afterEach } from 'vitest';
-import { getBestTorrentioStream } from './debrid';
+import {
+  getAioStreamsManifestUrl,
+  getBestTorrentioStream,
+  normalizeAioStreamsBaseUrl,
+  validateAioStreamsProvider,
+} from './debrid';
 
 const MOCK_AIO_RESPONSE = {
   streams: [
@@ -15,6 +20,54 @@ const MOCK_AIO_RESPONSE = {
     }
   ]
 };
+
+const MOCK_MANIFEST = {
+  id: "community.example",
+  name: "Example Streams",
+  resources: ["stream"],
+};
+
+describe('AIOStreams provider settings', () => {
+  afterEach(() => vi.restoreAllMocks());
+
+  test('normalizes base, manifest, and configure URLs to the addon base', () => {
+    expect(normalizeAioStreamsBaseUrl('https://example.test/addon/manifest.json')).toBe('https://example.test/addon');
+    expect(normalizeAioStreamsBaseUrl('https://example.test/addon/configure')).toBe('https://example.test/addon');
+    expect(getAioStreamsManifestUrl('https://example.test/addon/')).toBe('https://example.test/addon/manifest.json');
+  });
+
+  test('validates the provider manifest directly before trying a local proxy', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => MOCK_MANIFEST,
+    } as Response);
+
+    await expect(validateAioStreamsProvider('https://example.test/addon')).resolves.toBe('https://example.test/addon');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    expect(fetchSpy.mock.calls[0][0]).toBe('https://example.test/addon/manifest.json');
+  });
+
+  test('uses the backend proxy only when direct browser access fails', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch')
+      .mockRejectedValueOnce(new TypeError('CORS blocked'))
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => MOCK_MANIFEST,
+      } as Response);
+
+    await validateAioStreamsProvider('https://example.test/addon');
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    expect(fetchSpy.mock.calls[1][0]).toContain('/api/debrid/stream?url=');
+  });
+
+  test('reports a real manifest HTTP failure', async () => {
+    vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce({ ok: false, status: 404 } as Response);
+    await expect(validateAioStreamsProvider('https://example.test/addon'))
+      .rejects.toThrow('Provider manifest unreachable (HTTP 404)');
+  });
+});
 
 describe('AIOStreams Network layer', () => {
   let fetchSpy: any;

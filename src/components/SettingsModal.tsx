@@ -14,6 +14,7 @@ import {
   isStandalonePWA 
 } from '../lib/notifications';
 import { TMDB_API_KEY_STORAGE_KEY } from '../lib/tmdb';
+import { normalizeAioStreamsBaseUrl, validateAioStreamsProvider } from '../lib/debrid';
 
 export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onClose: () => void, shows: UserShow[] }) {
   const [currentPin, setCurrentPin] = useState('');
@@ -106,35 +107,17 @@ export function SettingsModal({ isOpen, onClose, shows }: { isOpen: boolean, onC
       
       if (trimmed) {
         setLoading(true);
-        const normalized = trimmed.replace(/\/manifest\.json(?:\?.*)?$/i, "").replace(/\/+$/, "");
-        const manifestUrl = normalized + "/manifest.json";
-        
         try {
-          const proxyUrl = `/api/debrid/stream?url=${encodeURIComponent(manifestUrl)}`;
-          let resp: Response;
-
-          try {
-            resp = await fetch(proxyUrl);
-            if (resp.status === 404 || resp.status === 405) {
-              resp = await fetch(manifestUrl, { headers: { Accept: 'application/json' } });
-            }
-          } catch {
-            // Static hosts such as GitHub Pages do not provide the local proxy.
-            resp = await fetch(manifestUrl, { headers: { Accept: 'application/json' } });
-          }
-          
-          if (!resp.ok) {
-            throw new Error(`Provider manifest unreachable (HTTP ${resp.status})`);
-          }
-          
+          const normalized = await validateAioStreamsProvider(trimmed);
           const envUrl = (import.meta as any).env?.VITE_AIOSTREAMS_BASE_URL?.trim();
-          if (envUrl && normalized === envUrl.replace(/\/manifest\.json(?:\?.*)?$/i, "").replace(/\/+$/, "")) {
+          if (envUrl && normalized === normalizeAioStreamsBaseUrl(envUrl)) {
             localStorage.removeItem("aiostreams_base_url");
             setAiostreamsUrl('');
           } else {
-            localStorage.setItem("aiostreams_base_url", trimmed);
+            localStorage.setItem("aiostreams_base_url", normalized);
+            setAiostreamsUrl(normalized);
           }
-          
+
           setAiostreamsSaved(true);
           setTimeout(() => setAiostreamsSaved(false), 2500);
         } catch (err: any) {
