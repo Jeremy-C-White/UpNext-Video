@@ -368,32 +368,43 @@ function enrichTMDBMovie(tmdbMovie: any): Show {
 }
 
 export async function getStoreCatalogTMDB(): Promise<Show[]> {
-  const cacheKey = "tmdb_nextup_video_store_v1";
+  const cacheKey = "tmdb_nextup_video_store_v2";
   const cached = getCached<Show[]>(cacheKey);
   if (cached) return cached;
 
   const today = new Date().toISOString().split("T")[0];
-  const requests = [
-    fetchTMDB("/discover/movie", { with_genres: "28", sort_by: "popularity.desc", "vote_count.gte": "150" }),
-    fetchTMDB("/discover/movie", { with_genres: "35", sort_by: "popularity.desc", "vote_count.gte": "150" }),
-    fetchTMDB("/discover/movie", { with_genres: "27", sort_by: "popularity.desc", "vote_count.gte": "100" }),
-    fetchTMDB("/discover/movie", { with_genres: "878", sort_by: "popularity.desc", "vote_count.gte": "100" }),
-    fetchTMDB("/discover/tv", { sort_by: "popularity.desc", "vote_count.gte": "150", without_genres: "10763,10767" }),
-    fetchTMDB("/discover/movie", {
-      sort_by: "primary_release_date.desc",
-      "primary_release_date.lte": today,
-      "primary_release_date.gte": `${new Date().getFullYear() - 2}-01-01`,
-      "vote_count.gte": "25",
-    }),
+  const pages = [1, 2, 3];
+  const feeds: Array<{ endpoint: string; params: Record<string, string>; isTv: boolean }> = [
+    { endpoint: "/discover/movie", params: { with_genres: "28", sort_by: "popularity.desc", "vote_count.gte": "150" }, isTv: false },
+    { endpoint: "/discover/movie", params: { with_genres: "35", sort_by: "popularity.desc", "vote_count.gte": "150" }, isTv: false },
+    { endpoint: "/discover/movie", params: { with_genres: "27", sort_by: "popularity.desc", "vote_count.gte": "100" }, isTv: false },
+    { endpoint: "/discover/movie", params: { with_genres: "878", sort_by: "popularity.desc", "vote_count.gte": "100" }, isTv: false },
+    { endpoint: "/discover/tv", params: { sort_by: "popularity.desc", "vote_count.gte": "150", without_genres: "10763,10767" }, isTv: true },
+    {
+      endpoint: "/discover/movie",
+      params: {
+        sort_by: "primary_release_date.desc",
+        "primary_release_date.lte": today,
+        "primary_release_date.gte": `${new Date().getFullYear() - 2}-01-01`,
+        "vote_count.gte": "25",
+      },
+      isTv: false,
+    },
   ];
 
-  const settled = await Promise.allSettled(requests);
+  const requests = feeds.flatMap((feed) => pages.map((page) => ({
+    isTv: feed.isTv,
+    promise: fetchTMDB(feed.endpoint, { ...feed.params, page: String(page) }),
+  })));
+  const settled = await Promise.allSettled(requests.map((request) => request.promise));
   const shows: Show[] = [];
   settled.forEach((result, index) => {
     if (result.status !== "fulfilled") return;
-    const isTv = index === 4;
-    (result.value?.results || []).slice(0, 20).forEach((item: any) => {
-      shows.push(isTv ? enrichTMDBShow(item) : enrichTMDBMovie(item));
+    const { isTv } = requests[index];
+    (result.value?.results || []).forEach((item: any) => {
+      const show = isTv ? enrichTMDBShow(item) : enrichTMDBMovie(item);
+      if (!show.image?.medium) return;
+      shows.push(show);
     });
   });
 

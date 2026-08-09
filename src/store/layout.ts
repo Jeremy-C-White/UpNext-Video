@@ -16,6 +16,11 @@ export const DVD_CASE_WIDTH = 0.135;
 export const DVD_CASE_HEIGHT = 0.19;
 export const DVD_CASE_DEPTH = 0.014;
 
+// A double-sided gondola. Each fixture face sits this far from the island
+// centerline with its back toward the core and its artwork toward an aisle.
+export const ISLAND_HALF_DEPTH = 0.3;
+export const ISLAND_CENTERS = { west: -6.55, east: 6.55, z: -5.3 } as const;
+
 const EMPTY_SLOTS: Record<string, number[]> = {
   reserved: [7],
   "new-releases": [5, 18],
@@ -78,8 +83,8 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Comedy",
     label: "COMEDY",
     aisle: "Aisle 2 · West island",
-    center: [-6.75, 1.17, -5.3],
-    rotationY: Math.PI / 2,
+    center: [ISLAND_CENTERS.west - ISLAND_HALF_DEPTH, 1.17, ISLAND_CENTERS.z],
+    rotationY: -Math.PI / 2,
     columns: 8,
     rows: 6,
     columnGap: 0.62,
@@ -91,8 +96,8 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Horror",
     label: "HORROR",
     aisle: "Aisle 3 · West island",
-    center: [-6.35, 1.17, -5.3],
-    rotationY: -Math.PI / 2,
+    center: [ISLAND_CENTERS.west + ISLAND_HALF_DEPTH, 1.17, ISLAND_CENTERS.z],
+    rotationY: Math.PI / 2,
     columns: 8,
     rows: 6,
     columnGap: 0.62,
@@ -104,8 +109,8 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Science Fiction",
     label: "SCIENCE FICTION",
     aisle: "Aisle 4 · East island",
-    center: [6.35, 1.17, -5.3],
-    rotationY: Math.PI / 2,
+    center: [ISLAND_CENTERS.east - ISLAND_HALF_DEPTH, 1.17, ISLAND_CENTERS.z],
+    rotationY: -Math.PI / 2,
     columns: 8,
     rows: 6,
     columnGap: 0.62,
@@ -117,8 +122,8 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Television",
     label: "TELEVISION",
     aisle: "Aisle 5 · East island",
-    center: [6.75, 1.17, -5.3],
-    rotationY: -Math.PI / 2,
+    center: [ISLAND_CENTERS.east + ISLAND_HALF_DEPTH, 1.17, ISLAND_CENTERS.z],
+    rotationY: Math.PI / 2,
     columns: 8,
     rows: 6,
     columnGap: 0.62,

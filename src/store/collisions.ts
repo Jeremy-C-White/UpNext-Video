@@ -1,4 +1,4 @@
-import { sectionWidth, STORE_BOUNDS, STORE_SECTIONS } from "./layout";
+import { ISLAND_CENTERS, ISLAND_HALF_DEPTH, sectionWidth, STORE_BOUNDS, STORE_SECTIONS } from "./layout";
 
 export interface CollisionBox {
   minX: number;
@@ -25,11 +25,19 @@ function sectionCollider(id: string) {
   );
 }
 
+function islandCollider(centerX: number): CollisionBox {
+  const reference = STORE_SECTIONS.find((section) => section.id === "comedy")!;
+  return boxFromCenter(
+    centerX,
+    ISLAND_CENTERS.z,
+    ISLAND_HALF_DEPTH * 2 + 0.3,
+    sectionWidth(reference) + 0.12,
+  );
+}
+
 export const STATIC_COLLIDERS: CollisionBox[] = [
-  sectionCollider("comedy"),
-  sectionCollider("horror"),
-  sectionCollider("sci-fi"),
-  sectionCollider("television"),
+  islandCollider(ISLAND_CENTERS.west),
+  islandCollider(ISLAND_CENTERS.east),
   sectionCollider("reserved"),
   sectionCollider("new-releases"),
   boxFromCenter(13.1, 14.6, 4.3, 1.08),

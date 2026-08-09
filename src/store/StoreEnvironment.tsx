@@ -1,9 +1,9 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { RoundedBox } from "@react-three/drei";
+import { MeshReflectorMaterial, RoundedBox } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { sectionHeight, sectionWidth, STORE_SECTIONS } from "./layout";
+import { ISLAND_CENTERS, ISLAND_HALF_DEPTH, sectionHeight, sectionWidth, STORE_SECTIONS } from "./layout";
 import type { StoreSectionDefinition } from "./types";
 
 function createLabelTexture(label: string, accent: string, subtitle?: string) {
@@ -212,15 +212,21 @@ function FloorSurfaces() {
     <group name="period-floor-surfaces">
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
         <planeGeometry args={[36, 48]} />
-        <meshPhysicalMaterial
+        <MeshReflectorMaterial
           map={tileColor}
           roughnessMap={tileRoughness}
           bumpMap={tileRoughness}
           bumpScale={0.0035}
-          roughness={0.34}
-          metalness={0.02}
-          clearcoat={0.34}
-          clearcoatRoughness={0.28}
+          resolution={512}
+          mirror={0.22}
+          mixStrength={0.48}
+          mixBlur={1}
+          blur={[320, 90]}
+          depthScale={0.82}
+          minDepthThreshold={0.38}
+          maxDepthThreshold={1.3}
+          roughness={0.43}
+          metalness={0.025}
         />
       </mesh>
       {[-11.1, 11.1].map((x) => (
@@ -501,6 +507,27 @@ function ShelfFixture({ section }: { section: StoreSectionDefinition }) {
   );
 }
 
+function IslandCore({ x }: { x: number }) {
+  const reference = STORE_SECTIONS.find((section) => section.id === "comedy")!;
+  const runLength = sectionWidth(reference);
+  const height = sectionHeight(reference);
+  const totalDepth = ISLAND_HALF_DEPTH * 2 + 0.24;
+  const coreWidth = Math.max(0.08, ISLAND_HALF_DEPTH * 2 - 0.145);
+  return (
+    <group position={[x, 0, ISLAND_CENTERS.z]} name={`island-core-${x > 0 ? "east" : "west"}`}>
+      <RoundedBox args={[totalDepth, 0.3, runLength + 0.14]} position={[0, 0.15, 0]} radius={0.004} smoothness={4} castShadow receiveShadow>
+        <meshStandardMaterial color="#123268" roughness={0.5} metalness={0.08} />
+      </RoundedBox>
+      <RoundedBox args={[coreWidth, height, runLength]} position={[0, 1.17, 0]} radius={0.003} smoothness={4} castShadow receiveShadow>
+        <meshStandardMaterial color="#0f2a58" roughness={0.62} metalness={0.05} />
+      </RoundedBox>
+      <RoundedBox args={[totalDepth + 0.02, 0.06, runLength + 0.12]} position={[0, height / 2 + 1.2, 0]} radius={0.004} smoothness={4} castShadow>
+        <meshStandardMaterial color="#e7d8b5" roughness={0.44} />
+      </RoundedBox>
+    </group>
+  );
+}
+
 function FluorescentFixture({ position, dead = false, flicker = false }: { position: [number, number, number]; dead?: boolean; flicker?: boolean }) {
   const tubeMaterial = useMemo(() => new THREE.MeshStandardMaterial({
     color: dead ? "#7f8580" : "#e6f1e5",
@@ -667,6 +694,8 @@ export function StoreEnvironment({ entered }: { entered: boolean }) {
       <Baseboards />
       <AutomaticDoors open={entered} />
 
+      <IslandCore x={ISLAND_CENTERS.west} />
+      <IslandCore x={ISLAND_CENTERS.east} />
       {STORE_SECTIONS.map((section) => <ShelfFixture key={section.id} section={section} />)}
       <group position={[0, 2.85, -23.01]}>
         <LabelPanel label="NEXTUP VIDEO" accent="#ffd84d" subtitle="MOVIES · TELEVISION · MORE" width={3.4} />

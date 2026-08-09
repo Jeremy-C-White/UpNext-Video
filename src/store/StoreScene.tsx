@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { AdaptiveDpr, ContactShadows } from "@react-three/drei";
 import { useThree } from "@react-three/fiber";
-import { Bloom, DepthOfField, EffectComposer, N8AO, Noise, SMAA, ToneMapping, Vignette } from "@react-three/postprocessing";
+import { Bloom, DepthOfField, EffectComposer, N8AO, Noise, ToneMapping, Vignette } from "@react-three/postprocessing";
 import { ToneMappingMode } from "postprocessing";
 import * as THREE from "three";
 import type { InspectControls, StoreMedia, PlayerPose, Vec3Tuple } from "./types";
@@ -87,16 +87,15 @@ function TextureQualityController() {
 
 export function StorePostProcessing({ inspecting }: { inspecting: boolean }) {
   return (
-    <EffectComposer multisampling={0} resolutionScale={0.75}>
+    <EffectComposer multisampling={4}>
       <N8AO
-        halfRes
-        quality="performance"
-        aoRadius={0.35}
-        distanceFalloff={0.7}
-        intensity={1.05}
-        aoSamples={8}
-        denoiseSamples={4}
-        denoiseRadius={8}
+        quality="medium"
+        aoRadius={1.02}
+        distanceFalloff={0.95}
+        intensity={1.65}
+        aoSamples={12}
+        denoiseSamples={6}
+        denoiseRadius={10}
       />
       <Bloom
         mipmapBlur
@@ -113,9 +112,8 @@ export function StorePostProcessing({ inspecting }: { inspecting: boolean }) {
           resolutionScale={0.5}
         />
       )}
-      <Noise opacity={0.022} />
+      <Noise opacity={0.014} />
       <Vignette eskil={false} offset={0.2} darkness={0.22} />
-      <SMAA />
       <ToneMapping mode={ToneMappingMode.AGX} />
     </EffectComposer>
   );

@@ -120,6 +120,18 @@ function takeForSection(
     });
   }
   results.splice(capacity);
+
+  // Rental stores filled thin feeds with additional facings of the same title.
+  // Keep each authored empty slot, but avoid leaving the rest of a fixture bare.
+  if (results.length > 0 && results.length < capacity) {
+    const originals = [...results];
+    let cursor = 0;
+    while (results.length < capacity) {
+      results.push(originals[cursor % originals.length]);
+      cursor += 1;
+    }
+  }
+
   if (!allowReuse) results.forEach((show) => used.add(keyForShow(show)));
   return results;
 }
@@ -160,7 +172,7 @@ export function buildStoreCatalog(options: CatalogOptions): StoreMedia[] {
     const selected = takeForSection(
       section,
       preferred,
-      section.id === "reserved" ? librarySources : posterFirst,
+      section.id === "reserved" && librarySources.length ? librarySources : posterFirst,
       used,
       allowReuse,
     );
@@ -170,7 +182,9 @@ export function buildStoreCatalog(options: CatalogOptions): StoreMedia[] {
       const reason = section.id === "reserved"
         ? nextEpisode
           ? `Your next episode is waiting${userName ? `, ${userName}` : ""}.`
-          : "Saved in your NextUp library."
+          : libraryShow
+            ? "Saved in your NextUp library."
+            : "A popular pick held for your next visit."
         : section.id === "staff-picks"
           ? libraryShow
             ? "A favorite from your own shelf."

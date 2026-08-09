@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Show, UserEpisode, UserShow } from "../types";
 import { buildStoreCatalog } from "./catalog";
-import { createPlacement, DVD_CASE_DEPTH, DVD_CASE_HEIGHT, DVD_CASE_WIDTH, sectionCapacity, sectionHeight, STORE_SECTIONS } from "./layout";
+import { createPlacement, DVD_CASE_DEPTH, DVD_CASE_HEIGHT, DVD_CASE_WIDTH, ISLAND_CENTERS, sectionCapacity, sectionHeight, STORE_SECTIONS } from "./layout";
 
 const makeShow = (id: number, name: string, genres: string[], isMovie = true): Show => ({
   id,
@@ -51,6 +51,27 @@ describe("NEXTUP VIDEO catalog", () => {
     expect(catalog.every((item) => Number.isFinite(item.placement.rotationY))).toBe(true);
     expect(catalog.some((item) => Math.abs(item.placement.rotationZ) > 0.005)).toBe(true);
     expect(catalog.every((item) => item.placement.scale >= 0.98 && item.placement.scale <= 1.015)).toBe(true);
+  });
+
+  it("stocks the front hold fixture for a new user without claiming titles are in their library", () => {
+    const supplemental = Array.from({ length: 80 }, (_, index) => makeShow(-3000 - index, `Walk-in Pick ${index}`, ["Action"]));
+    const catalog = buildStoreCatalog({ library: [], episodesMap: {}, discovery: [], staffPicks: [], supplemental });
+    const reserved = catalog.filter((item) => item.department === "Reserved for You");
+    const section = STORE_SECTIONS.find((candidate) => candidate.id === "reserved")!;
+
+    expect(reserved).toHaveLength(sectionCapacity(section));
+    expect(reserved.every((item) => !item.libraryShow)).toBe(true);
+    expect(reserved.every((item) => item.personalizedReason === "A popular pick held for your next visit.")).toBe(true);
+  });
+
+  it("faces both sides of each gondola outward toward their aisles", () => {
+    const islandSections = STORE_SECTIONS.filter((section) => ["comedy", "horror", "sci-fi", "television"].includes(section.id));
+    for (const section of islandSections) {
+      const centerX = section.center[0] < 0 ? ISLAND_CENTERS.west : ISLAND_CENTERS.east;
+      const offsetFromCore = section.center[0] - centerX;
+      const frontNormalX = Math.sin(section.rotationY);
+      expect(offsetFromCore * frontNormalX).toBeGreaterThan(0);
+    }
   });
 
   it("uses human-scale cases and six-row rental fixtures", () => {

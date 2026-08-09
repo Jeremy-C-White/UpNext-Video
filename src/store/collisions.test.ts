@@ -19,4 +19,11 @@ describe("store collision movement", () => {
     expect(canOccupy(-12, 16)).toBe(true);
     expect(canOccupy(0, 4.2)).toBe(false);
   });
+
+  it("treats each double-sided island as one solid gondola with open aisles", () => {
+    expect(canOccupy(-6.55, -5.3)).toBe(false);
+    expect(canOccupy(6.55, -5.3)).toBe(false);
+    expect(canOccupy(-5.25, -5.3)).toBe(true);
+    expect(canOccupy(5.25, -5.3)).toBe(true);
+  });
 });
