@@ -19,6 +19,7 @@ const StoreView = lazy(() => import("./store/StoreView"));
 import { UserMenu } from "./components/UserMenu";
 import { AddToCalendarButton } from "./components/AddToCalendarButton";
 import { DiscoverErrorBoundary } from "./components/DiscoverErrorBoundary";
+import { PlayerErrorBoundary } from "./components/PlayerErrorBoundary";
 import { UserShow, Show, UserEpisode, PlaybackRequest } from "./types";
 import type { StoreMedia } from "./store/types";
 import { addShowToLibrary, getShowEpisodes, markEpisodeWatched, markEpisodesWatchedBatch, removeShowFromLibrary, removeUndefined } from "./lib/library";
@@ -1557,11 +1558,26 @@ const loadWithFallback = async (
       )}
 
       {playbackRequest && (
-        <VideoPlayerModal 
-          request={playbackRequest}
+        <PlayerErrorBoundary
+          resetKey={`${playbackRequest.showId}:${playbackRequest.season}:${playbackRequest.number}`}
           onClose={() => setPlaybackRequest(null)}
-          overStore={isStoreOpen}
-        />
+        >
+          <Suspense fallback={
+            <div className="fixed inset-0 z-[100] grid place-items-center bg-slate-950/95 text-white">
+              <div className="flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-black/40 p-7 backdrop-blur-sm">
+                <div className="h-11 w-11 animate-spin rounded-full border-4 border-orange-500/25 border-t-orange-500" />
+                <p className="text-sm font-semibold text-white/80">Opening player...</p>
+              </div>
+            </div>
+          }>
+            <VideoPlayerModal
+              key={`${playbackRequest.showId}:${playbackRequest.season}:${playbackRequest.number}`}
+              request={playbackRequest}
+              onClose={() => setPlaybackRequest(null)}
+              overStore={isStoreOpen}
+            />
+          </Suspense>
+        </PlayerErrorBoundary>
       )}
 
       {recommendedPick && (

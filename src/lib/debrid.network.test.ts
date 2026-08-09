@@ -173,4 +173,49 @@ describe('AIOStreams Network layer', () => {
 
     await expect(promise).rejects.toThrow("Stream resolution timed out.");
   });
+
+  test('a closed player cannot poison the next request for the same episode', async () => {
+    const firstController = new AbortController();
+    let requestCount = 0;
+
+    fetchSpy.mockImplementation((_url: string, options: RequestInit) => {
+      requestCount += 1;
+      if (requestCount === 1) {
+        return new Promise<Response>((_resolve, reject) => {
+          options.signal?.addEventListener("abort", () => {
+            const error = new Error("AbortError");
+            error.name = "AbortError";
+            reject(error);
+          }, { once: true });
+        });
+      }
+
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: async () => MOCK_AIO_RESPONSE,
+      } as Response);
+    });
+
+    const closedPlayerRequest = getBestTorrentioStream(
+      "tt7654321",
+      1,
+      1,
+      "series",
+      firstController.signal,
+      true,
+    );
+    firstController.abort();
+
+    const reopenedPlayerRequest = getBestTorrentioStream(
+      "tt7654321",
+      1,
+      1,
+      "series",
+    );
+
+    await expect(closedPlayerRequest).rejects.toThrow("Stream resolution timed out.");
+    await expect(reopenedPlayerRequest).resolves.not.toHaveLength(0);
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
 });

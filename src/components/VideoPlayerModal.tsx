@@ -96,12 +96,14 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
   const [autoplayBlocked, setAutoplayBlocked] = useState(false);
   const [sourceValidated, setSourceValidated] = useState(false);
   const [resolutionAttempt, setResolutionAttempt] = useState(0);
+  const [videoAttemptKey, setVideoAttemptKey] = useState(0);
   
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const playAttemptedForSourceRef = useRef(false);
   const candidateAdvanceLockRef = useRef(false);
   const sourceValidatedRef = useRef(false);
   const startupDeadlineRef = useRef(0);
+  const resolutionAttemptRef = useRef(0);
 
   // Mutable refs to eliminate stale closure issues in timers & event handlers
   const candidatesRef = useRef<PlaybackCandidate[]>([]);
@@ -117,6 +119,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
   }, [candidates]);
   useEffect(() => { candidateIndexRef.current = candidateIndex; }, [candidateIndex]);
   useEffect(() => { modeRef.current = mode; }, [mode]);
+  useEffect(() => { resolutionAttemptRef.current = resolutionAttempt; }, [resolutionAttempt]);
 
   const currentMp4Stream = mp4Candidates[candidateIndex]?.url;
   const topMkv = mkvCandidates[0];
@@ -142,6 +145,55 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
       setTimeout(() => setPlaybackWarning(null), 3000);
     }
   };
+
+  const stopCurrentVideo = useCallback(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    try {
+      video.pause();
+      video.removeAttribute("src");
+      video.load();
+    } catch {
+      // The element may already be leaving fullscreen or unmounting.
+    }
+  }, []);
+
+  const retrySourceSearch = useCallback((message = "Refreshing video sources...") => {
+    modeRef.current = 'loading';
+    stopCurrentVideo();
+    candidateAdvanceLockRef.current = true;
+    playAttemptedForSourceRef.current = false;
+    sourceValidatedRef.current = false;
+    startupDeadlineRef.current = 0;
+    setMode('loading');
+    setSourceValidated(false);
+    setAutoplayBlocked(false);
+    setHasError(false);
+    setPlaybackError(null);
+    setPlaybackWarning(null);
+    setShowSourceSelector(false);
+    setIsLoading(true);
+    setStatusText(message);
+    setVideoAttemptKey((attempt) => attempt + 1);
+    resolutionAttemptRef.current += 1;
+    setResolutionAttempt(resolutionAttemptRef.current);
+  }, [stopCurrentVideo]);
+
+  const handleClose = useCallback(() => {
+    const video = videoRef.current;
+    const fullscreenElement = document.fullscreenElement;
+    if (
+      fullscreenElement &&
+      video &&
+      (fullscreenElement === video || fullscreenElement.contains(video))
+    ) {
+      void document.exitFullscreen?.().catch(() => undefined);
+    }
+    modeRef.current = 'loading';
+    stopCurrentVideo();
+    onClose();
+  }, [onClose, stopCurrentVideo]);
 
 
   const handleNextMp4Candidate = useCallback((manual = false) => {
@@ -174,6 +226,10 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     };
 
     if (!manual && startupDeadlineRef.current !== 0 && Date.now() > startupDeadlineRef.current) {
+      if (resolutionAttemptRef.current === 0) {
+        retrySourceSearch("The first links expired. Requesting fresh sources...");
+        return;
+      }
       if (currentMkvs.length > 0) {
         setMode('mkv_transition');
         modeRef.current = 'mkv_transition';
@@ -203,16 +259,10 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
       setAutoplayBlocked(false);
       setStatusText("Checking video source...");
 
-      // A one-source retry does not change React's src prop, so reload it explicitly.
-      if (nextIdx === currentIndex && videoRef.current) {
-        window.setTimeout(() => {
-          candidateAdvanceLockRef.current = false;
-          try {
-            videoRef.current?.load();
-          } catch {
-            // Ignore and let the normal media error path handle it.
-          }
-        }, 0);
+      // A one-source retry does not change the src prop. Remounting the media
+      // element clears Chromium's latched native "Something went wrong" state.
+      if (nextIdx === currentIndex) {
+        setVideoAttemptKey((attempt) => attempt + 1);
       }
     } else if (currentMkvs.length > 0) {
       setMode('mkv_transition');
@@ -220,12 +270,16 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
       setPlaybackError("In-app playback was not compatible with these sources. VLC-ready options are available.");
       setIsLoading(false);
     } else {
-      setMode('error');
-      modeRef.current = 'error';
-      setPlaybackError("The available browser sources could not be started. Please retry the source search.");
-      setIsLoading(false);
+      if (resolutionAttemptRef.current === 0) {
+        retrySourceSearch("The first links failed. Requesting fresh sources...");
+      } else {
+        setMode('error');
+        modeRef.current = 'error';
+        setPlaybackError("The available browser sources could not be started. Please retry the source search.");
+        setIsLoading(false);
+      }
     }
-  }, [isIOS]);
+  }, [retrySourceSearch]);
 
   /**
    * Real-Debrid can occasionally return a short placeholder video stating that
@@ -287,6 +341,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
     setIsLoading(true);
     candidateAdvanceLockRef.current = false;
     playAttemptedForSourceRef.current = false;
+    startupDeadlineRef.current = 0;
     
     async function resolveAndFetch() {
       try {
@@ -669,7 +724,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
         }`}
       >
         <button 
-          onClick={onClose}
+          onClick={handleClose}
           className="p-3 bg-black/60 hover:bg-black/80 active:scale-95 rounded-full text-white transition-all shadow-lg border border-white/10"
           aria-label="Close"
         >
@@ -766,6 +821,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
 
           {currentMp4Stream && (
             <video
+              key={`${currentMp4Stream}:${videoAttemptKey}`}
               ref={videoRef}
               src={currentMp4Stream}
               controls
@@ -907,10 +963,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
             {mp4Candidates.length > 0 && (
               <button
                 onClick={() => {
-                  setCandidateIndex(0);
-                  setMode('mp4_play');
-                  setIsLoading(true);
-                  setStatusText("Retrying MP4 player...");
+                  retrySourceSearch("Requesting fresh browser sources...");
                 }}
                 className="px-5 py-2.5 bg-white/10 hover:bg-white/20 text-white text-xs font-semibold rounded-xl transition-all border border-white/10 flex items-center gap-2"
               >
@@ -926,7 +979,7 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
               View All Sources List ({candidates.length})
             </button>
             <button
-              onClick={onClose}
+                onClick={handleClose}
               className="px-5 py-2.5 bg-slate-800 hover:bg-slate-700 text-white/70 hover:text-white text-xs font-semibold rounded-xl transition-all"
             >
               Close
@@ -956,14 +1009,14 @@ export function VideoPlayerModal({ request, onClose, overStore = false }: VideoP
               </button>
             )}
             <button
-              onClick={() => setResolutionAttempt(attempt => attempt + 1)}
+                onClick={() => retrySourceSearch()}
               className="px-6 py-3 bg-orange-500 hover:bg-orange-600 text-slate-950 rounded-xl font-bold transition-colors text-sm flex items-center justify-center gap-2"
             >
               <RefreshCcw className="w-4 h-4" />
               Try Again
             </button>
             <button
-              onClick={onClose}
+                onClick={handleClose}
               className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white rounded-xl font-semibold transition-colors text-sm"
             >
               Close

@@ -804,8 +804,8 @@ async function readErrorResponse(
 }
 
 interface StreamCacheEntry {
-  resolvedAt: number | null;
-  promise: Promise<PlaybackCandidate[]>;
+  resolvedAt: number;
+  candidates: PlaybackCandidate[];
 }
 const STREAM_CACHE = new Map<string, StreamCacheEntry>();
 const STREAM_CACHE_TTL_MS = 300_000;
@@ -828,30 +828,26 @@ export async function getBestTorrentioStream(
   }
   const existing = STREAM_CACHE.get(cacheKey);
   if (existing) {
-    if (existing.resolvedAt === null || now - existing.resolvedAt < STREAM_CACHE_TTL_MS) {
-      return existing.promise;
+    if (now - existing.resolvedAt < STREAM_CACHE_TTL_MS) {
+      return existing.candidates;
     } else {
       STREAM_CACHE.delete(cacheKey);
     }
   }
 
-  const promise = fetchBestStreamImpl(imdbId, season, episode, type, signal);
-  const entry: StreamCacheEntry = { resolvedAt: null, promise };
-  STREAM_CACHE.set(cacheKey, entry);
-
-  try {
-    const result = await promise;
-    // Only set resolvedAt if this is still the active entry
-    if (STREAM_CACHE.get(cacheKey) === entry) {
-      entry.resolvedAt = Date.now();
-    }
-    return result;
-  } catch (error) {
-    if (STREAM_CACHE.get(cacheKey) === entry) {
-      STREAM_CACHE.delete(cacheKey);
-    }
-    throw error;
+  /*
+   * Cache only completed resolutions. An in-flight promise is tied to the
+   * caller's AbortSignal; sharing it allowed a closed player to abort the next
+   * player opened for the same episode before the rejected promise was evicted.
+   */
+  const result = await fetchBestStreamImpl(imdbId, season, episode, type, signal);
+  if (!signal?.aborted) {
+    STREAM_CACHE.set(cacheKey, {
+      resolvedAt: Date.now(),
+      candidates: result,
+    });
   }
+  return result;
 }
 
 async function fetchBestStreamImpl(
@@ -893,13 +889,18 @@ async function fetchBestStreamImpl(
   const proxyUrl = `/api/debrid/stream?url=${encodeURIComponent(requestUrl)}`;
 
   const controller = new AbortController();
+  const forwardAbort = () => controller.abort();
   const timeoutId = window.setTimeout(
     () => controller.abort(),
-    145_000
+    REQUEST_TIMEOUT_MS
   );
   
   if (signal) {
-    signal.addEventListener("abort", () => controller.abort());
+    if (signal.aborted) {
+      controller.abort();
+    } else {
+      signal.addEventListener("abort", forwardAbort, { once: true });
+    }
   }
 
   let response: Response;
@@ -937,6 +938,7 @@ async function fetchBestStreamImpl(
     );
   } finally {
     window.clearTimeout(timeoutId);
+    signal?.removeEventListener("abort", forwardAbort);
   }
 
   if (!response.ok) {
