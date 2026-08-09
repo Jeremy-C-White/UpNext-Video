@@ -23,6 +23,7 @@ import { PlayerErrorBoundary } from "./components/PlayerErrorBoundary";
 import { UserShow, Show, UserEpisode, PlaybackRequest } from "./types";
 import type { StoreMedia } from "./store/types";
 import { addShowToLibrary, getShowEpisodes, markEpisodeWatched, markEpisodesWatchedBatch, removeShowFromLibrary, removeUndefined } from "./lib/library";
+import { coalesceLibraryDocuments } from "./lib/libraryIdentity";
 import { checkAndNotifyUpcomingEpisodes } from "./lib/notifications";
 import { getTrendingShows, getPremieringSoon, resolveTVMazeShow, getShow, getTrendingTVMaze, getHiddenGems, getForYou } from "./lib/tvmaze";
 import { getTrendingTMDB, getTrendingMoviesTMDB, getRecommendationsTMDB, getTMDBIdFromIMDB, getTopShowsByNetwork, getHiddenGemsTMDB, getForYouTMDB, getTMDBExternalIds } from "./lib/tmdb";
@@ -575,27 +576,34 @@ const loadWithFallback = async (
     return onSnapshot(q, async (snapshot) => {
       const currentGen = generationRef.current;
       try {
-        const userShows = snapshot.docs.map(d => ({...d.data(), id: d.id} as UserShow));
+        const libraryHealth = coalesceLibraryDocuments(
+          snapshot.docs.map(d => ({ ...d.data(), id: d.id })),
+        );
+        const userShows = libraryHealth.shows;
+        if (libraryHealth.duplicateDocumentIds.length > 0 || libraryHealth.orphanDocumentIds.length > 0) {
+          console.warn("Protected library from legacy duplicate documents", {
+            duplicates: libraryHealth.duplicateDocumentIds,
+            orphans: libraryHealth.orphanDocumentIds,
+          });
+        }
         setShows(userShows);
-        
-        const asyncTasks: Promise<void>[] = [];
-        
+
         setEpisodesMap(prevEpsMap => {
           const newEpsMap = { ...prevEpsMap };
-          
-          snapshot.docChanges().forEach(change => {
-            const show = { ...change.doc.data(), id: change.doc.id } as UserShow;
-            if (change.type === 'removed') {
-              delete newEpsMap[show.id];
-            } else if (change.type === 'modified') {
-              const existingEps = newEpsMap[show.id];
-              if (existingEps) {
-                newEpsMap[show.id] = existingEps.map(ep => ({
-                  ...ep,
-                  watched: !!(show.watchedEpisodes && show.watchedEpisodes[ep.id]),
-                  watchedAt: show.watchedEpisodes ? (show.watchedEpisodes[ep.id] || undefined) : undefined
-                }));
-              }
+
+          const activeShowIds = new Set(userShows.map(show => show.id));
+          Object.keys(newEpsMap).forEach(showId => {
+            if (!activeShowIds.has(showId)) delete newEpsMap[showId];
+          });
+
+          userShows.forEach(show => {
+            const existingEps = newEpsMap[show.id];
+            if (existingEps) {
+              newEpsMap[show.id] = existingEps.map(ep => ({
+                ...ep,
+                watched: !!(show.watchedEpisodes && show.watchedEpisodes[ep.id]),
+                watchedAt: show.watchedEpisodes ? (show.watchedEpisodes[ep.id] || undefined) : undefined,
+              }));
             }
           });
           return newEpsMap;
@@ -629,7 +637,7 @@ const loadWithFallback = async (
     }
   };
 
-  const toggleWatched = async (showId: string, tvmazeId: number, epId: string, watched: boolean) => {
+  const toggleWatched = async (showId: string, epId: string, watched: boolean) => {
     if (!user) return;
     
     // Optimistic update
@@ -642,7 +650,7 @@ const loadWithFallback = async (
     });
 
     try {
-      await markEpisodeWatched(tvmazeId !== undefined ? tvmazeId : parseInt(showId, 10), epId, watched);
+      await markEpisodeWatched(showId, epId, watched);
     } catch (err) {
       console.error("Failed to mark watched", err);
       // Rollback specific episode
@@ -657,7 +665,7 @@ const loadWithFallback = async (
     }
   };
 
-  const handleMarkThrough = async (showId: string, tvmazeId: number, epIds: string[]) => {
+  const handleMarkThrough = async (showId: string, epIds: string[]) => {
     // Store original watched states for rollback
     const originalStates: Record<string, boolean> = {};
     const eps = episodesMap[showId] || [];
@@ -675,7 +683,7 @@ const loadWithFallback = async (
     });
     
     try {
-      await markEpisodesWatchedBatch(tvmazeId, epIds, true);
+      await markEpisodesWatchedBatch(showId, epIds, true);
     } catch (err) {
       console.error("Failed to batch mark watched", err);
       // Rollback specific episodes
@@ -696,7 +704,7 @@ const loadWithFallback = async (
     
     // We shouldn't optimistically remove because it's a big UI change, just wait for network
     try {
-      await removeShowFromLibrary(removedShow.tvmazeId);
+      await removeShowFromLibrary(removedShow);
       setDetailsShow(null);
       setToast({ message: `Removed ${removedShow.name}` });
     } catch (err) {
@@ -1231,7 +1239,7 @@ const loadWithFallback = async (
             ) : upNext.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {upNext.map(({ show, nextEp, progress }) => (
-                  <SwipeableCard key={show.id} onMark={() => toggleWatched(show.id, show.tvmazeId, nextEp.id, true)}>
+                  <SwipeableCard key={show.id} onMark={() => toggleWatched(show.id, nextEp.id, true)}>
                   <article className="relative min-h-[420px] bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-3xl overflow-hidden shadow-xl flex flex-col justify-end hover:border-slate-300 dark:hover:border-slate-700 transition-all group">
                     {/* Background Backdrop Image */}
                     <div className="absolute inset-0 z-0">
@@ -1293,7 +1301,7 @@ const loadWithFallback = async (
                       
                       <div className="flex gap-2.5 pointer-events-auto">
                         <button
-                          onClick={(e) => { e.stopPropagation(); toggleWatched(show.id, show.tvmazeId, nextEp.id, true); }}
+                          onClick={(e) => { e.stopPropagation(); toggleWatched(show.id, nextEp.id, true); }}
                           className="flex-1 py-2.5 bg-white/10 hover:bg-white/20 text-white text-sm font-semibold rounded-xl transition-all border border-white/10 flex items-center justify-center gap-1.5 active:scale-95 shadow-md"
                         >
                           <CheckCircle2 className="w-4 h-4 text-orange-400" />
@@ -1538,8 +1546,8 @@ const loadWithFallback = async (
           onRemove={() => {
             handleRemoveShow();
           }}
-          onToggleWatched={(epId, watched) => toggleWatched(detailsShow.id, detailsShow.tvmazeId, epId, watched)}
-          onMarkThrough={(epIds) => handleMarkThrough(detailsShow.id, detailsShow.tvmazeId, epIds)}
+          onToggleWatched={(epId, watched) => toggleWatched(detailsShow.id, epId, watched)}
+          onMarkThrough={(epIds) => handleMarkThrough(detailsShow.id, epIds)}
           inLibrary={shows.some(s => s.tvmazeId === detailsShow.tvmazeId || (!!s.imdbId && s.imdbId === detailsShow.imdbId))}
           onAdd={async (caughtUp) => {
             if (previewSource) {

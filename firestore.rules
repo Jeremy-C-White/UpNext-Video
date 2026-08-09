@@ -1,14 +1,31 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
+    function ownsUserData(userId) {
+      return request.auth != null && request.auth.uid == userId;
+    }
+
+    // A legacy client used the resolved TVMaze ID as a second document path
+    // and accidentally created sparse records containing only watchedEpisodes.
+    // Requiring stable identity fields prevents those corrupting creates while
+    // preserving normal merge updates on complete library records.
+    function isValidShow(data) {
+      return data.keys().hasAll(['name', 'tvmazeId'])
+        && data.name is string
+        && data.name.size() > 0
+        && data.tvmazeId is int;
+    }
+
     match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+      allow read, write: if ownsUserData(userId);
       
       match /shows/{showId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+        allow read, delete: if ownsUserData(userId);
+        allow create, update: if ownsUserData(userId)
+          && isValidShow(request.resource.data);
         
         match /episodes/{episodeId} {
-          allow read, write: if request.auth != null && request.auth.uid == userId;
+          allow read, write: if ownsUserData(userId);
         }
       }
     }
