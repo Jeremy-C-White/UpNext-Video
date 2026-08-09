@@ -356,7 +356,13 @@ export function HeldCase({
   const group = useRef<THREE.Group>(null);
   const heldLight = useRef<THREE.PointLight>(null);
   const { camera, gl } = useThree();
-  const texture = usePosterTexture(item?.posterUrl || "", "inspect");
+  const posterUrl = item?.posterUrl || "";
+  // Reuse the shelf artwork immediately, then swap in the inspection-sized
+  // image once it is ready. This prevents a picked-up case from briefly showing
+  // a blank rental sleeve while the larger poster downloads.
+  const shelfTexture = usePosterTexture(posterUrl, "shelf");
+  const inspectTexture = usePosterTexture(posterUrl, "inspect");
+  const texture = inspectTexture.userData.nextupPosterPlaceholder ? shelfTexture : inspectTexture;
   const backTexture = useMemo(() => (item ? createBackTexture(item) : null), [item]);
   const rentalSticker = useMemo(() => createRentalStickerTexture(), []);
   const targetPosition = useMemo(() => new THREE.Vector3(), []);
@@ -370,16 +376,16 @@ export function HeldCase({
   useEffect(() => () => rentalSticker.dispose(), [rentalSticker]);
   useEffect(() => {
     const anisotropy = Math.min(16, gl.capabilities.getMaxAnisotropy());
-    [texture, backTexture, rentalSticker].forEach((surface) => {
+    [shelfTexture, inspectTexture, backTexture, rentalSticker].forEach((surface) => {
       if (!surface) return;
       surface.anisotropy = anisotropy;
       surface.needsUpdate = true;
     });
-  }, [backTexture, gl, rentalSticker, texture]);
+  }, [backTexture, gl, inspectTexture, rentalSticker, shelfTexture]);
 
   useFrame((_, delta) => {
     if (!group.current || !heldLight.current) return;
-    heldLight.current.intensity = THREE.MathUtils.damp(heldLight.current.intensity, item ? 0.78 : 0, 12, delta);
+    heldLight.current.intensity = THREE.MathUtils.damp(heldLight.current.intensity, item ? 2.4 : 0, 12, delta);
     if (!item) return;
     const controls = inspectControls.current;
     targetPosition.set(-0.22, -0.1, -controls.distance).applyQuaternion(camera.quaternion).add(camera.position);
@@ -413,9 +419,12 @@ export function HeldCase({
         <planeGeometry args={[0.128, 0.188]} />
         <meshStandardMaterial
           map={texture}
-          color="#f4efe7"
+          color="#fffdf7"
           roughness={0.72}
           metalness={0}
+          emissive="#ffffff"
+          emissiveMap={texture}
+          emissiveIntensity={0.08}
           onBeforeCompile={applyHeldPosterPrintCorrection}
           customProgramCacheKey={() => "nextup-held-poster-print-v1"}
         />
@@ -425,7 +434,7 @@ export function HeldCase({
         <meshPhysicalMaterial
           color="#ffffff"
           transparent
-          opacity={0.13}
+          opacity={0.075}
           depthWrite={false}
           roughness={0.12}
           metalness={0}
@@ -444,7 +453,7 @@ export function HeldCase({
         <meshPhysicalMaterial
           color="#ffffff"
           transparent
-          opacity={0.1}
+          opacity={0.065}
           depthWrite={false}
           roughness={0.13}
           clearcoat={1}

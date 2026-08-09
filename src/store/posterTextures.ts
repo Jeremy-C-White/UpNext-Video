@@ -201,14 +201,25 @@ function pumpDownloadQueue() {
   }
 }
 
-function enqueueDownload(url: string, entry: TextureEntry) {
-  if (entry.queued || entry.loaded) return;
+function enqueueDownload(url: string, entry: TextureEntry, prioritize = false) {
+  if (entry.loaded) return;
+  if (entry.queued) {
+    if (prioritize) {
+      const queuedIndex = downloadQueue.indexOf(url);
+      if (queuedIndex > 0) {
+        downloadQueue.splice(queuedIndex, 1);
+        downloadQueue.unshift(url);
+      }
+    }
+    return;
+  }
   entry.queued = true;
-  downloadQueue.push(url);
+  if (prioritize) downloadQueue.unshift(url);
+  else downloadQueue.push(url);
   pumpDownloadQueue();
 }
 
-function acquireTexture(url: string, listener: (texture: THREE.Texture) => void) {
+function acquireTexture(url: string, listener: (texture: THREE.Texture) => void, prioritize = false) {
   if (!url) {
     listener(placeholderTexture);
     return () => undefined;
@@ -230,7 +241,7 @@ function acquireTexture(url: string, listener: (texture: THREE.Texture) => void)
   entry.refs += 1;
   entry.listeners.add(listener);
   listener(entry.texture);
-  enqueueDownload(url, entry);
+  enqueueDownload(url, entry, prioritize);
 
   return () => {
     const liveEntry = textureCache.get(url);
@@ -257,7 +268,7 @@ export function usePosterTexture(rawUrl: string, quality: PosterQuality = "shelf
   const url = useMemo(() => posterUrlForQuality(rawUrl, quality), [rawUrl, quality]);
   const [texture, setTexture] = useState<THREE.Texture>(placeholderTexture);
 
-  useEffect(() => acquireTexture(url, setTexture), [url]);
+  useEffect(() => acquireTexture(url, setTexture, quality === "inspect"), [quality, url]);
   return texture;
 }
 

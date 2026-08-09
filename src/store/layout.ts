@@ -2,13 +2,13 @@ import * as THREE from "three";
 import type { StorePlacement, StoreSectionDefinition, Vec3Tuple } from "./types";
 
 export const STORE_BOUNDS = {
-  minX: -17.1,
-  maxX: 17.1,
-  minZ: -22.1,
-  maxZ: 22.7,
+  minX: -6.9,
+  maxX: 6.9,
+  minZ: -10.3,
+  maxZ: 10.35,
 };
 
-export const PLAYER_SPAWN: Vec3Tuple = [0, 1.68, 20.4];
+export const PLAYER_SPAWN: Vec3Tuple = [0, 1.68, 9.45];
 
 // One Three.js unit is one metre. Keep these dimensions tied to a standard
 // Amaray-style DVD case so the entire room reads correctly against eye height.
@@ -19,7 +19,7 @@ export const DVD_CASE_DEPTH = 0.014;
 // A double-sided gondola. Each fixture face sits this far from the island
 // centerline with its back toward the core and its artwork toward an aisle.
 export const ISLAND_HALF_DEPTH = 0.3;
-export const ISLAND_CENTERS = { west: -6.55, east: 6.55, z: -5.3 } as const;
+export const ISLAND_CENTERS = { west: -2.5, east: 2.5, z: -3.2 } as const;
 
 const EMPTY_SLOTS: Record<string, number[]> = {
   reserved: [7],
@@ -44,7 +44,7 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Reserved for You",
     label: "RESERVED FOR YOU",
     aisle: "Front desk · Holds",
-    center: [-11.2, 1.08, 18.7],
+    center: [-4.7, 1.08, 8.15],
     rotationY: 0,
     columns: 4,
     rows: 3,
@@ -57,7 +57,7 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "New Releases",
     label: "★ NEW RELEASES ★",
     aisle: "Front feature · Center",
-    center: [0, 1.17, 4.2],
+    center: [0, 1.17, 2.55],
     rotationY: 0,
     columns: 8,
     rows: 6,
@@ -70,7 +70,7 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Action",
     label: "ACTION",
     aisle: "Aisle 1 · West wall",
-    center: [-16.5, 1.17, -7.1],
+    center: [-6.75, 1.17, -3.2],
     rotationY: Math.PI / 2,
     columns: 8,
     rows: 6,
@@ -135,7 +135,7 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
     department: "Staff Picks",
     label: "NEXTUP STAFF PICKS",
     aisle: "Aisle 6 · East wall",
-    center: [16.5, 1.17, -7.1],
+    center: [6.75, 1.17, -3.2],
     rotationY: -Math.PI / 2,
     columns: 8,
     rows: 6,
@@ -199,7 +199,7 @@ export function buildGuidancePath(start: Vec3Tuple, target: Vec3Tuple): THREE.Ve
 
   // The center of the store is an authored clear corridor. Route there first,
   // then toward the target aisle so the finder never sends people through a shelf.
-  const corridorZ = target[2] < 10 ? 5.2 : 14.4;
+  const corridorZ = target[2] < 6 ? 4.05 : 7.15;
   if (Math.abs(startPoint.z - corridorZ) > 0.8) {
     points.push(new THREE.Vector3(startPoint.x, 0.035, corridorZ));
   }

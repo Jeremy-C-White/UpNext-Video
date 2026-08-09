@@ -40,10 +40,10 @@ export const STATIC_COLLIDERS: CollisionBox[] = [
   islandCollider(ISLAND_CENTERS.east),
   sectionCollider("reserved"),
   sectionCollider("new-releases"),
-  boxFromCenter(13.1, 14.6, 4.3, 1.08),
-  boxFromCenter(-13.2, 14.4, 3.5, 0.72),
-  boxFromCenter(11.4, 5.5, 1.1, 0.38),
-  boxFromCenter(0, -13.1, 1.1, 0.38),
+  boxFromCenter(4.7, 8.1, 4.3, 1.08),
+  boxFromCenter(-4.8, 8.1, 3.5, 0.72),
+  boxFromCenter(4.85, 2.7, 1.1, 0.38),
+  boxFromCenter(0, -8.25, 1.1, 0.38),
 ];
 
 export function circleIntersectsBox(x: number, z: number, radius: number, box: CollisionBox) {

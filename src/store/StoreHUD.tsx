@@ -13,7 +13,7 @@ import {
   VolumeX,
   X,
 } from "lucide-react";
-import { STORE_SECTIONS } from "./layout";
+import { STORE_BOUNDS, STORE_SECTIONS } from "./layout";
 import type { PlayerPose, StoreMedia } from "./types";
 
 function StoreFinder({
@@ -78,8 +78,8 @@ function StoreFinder({
 }
 
 function StoreMap({ pose, onClose }: { pose: PlayerPose; onClose: () => void }) {
-  const playerLeft = ((pose.x + 18) / 36) * 100;
-  const playerTop = ((pose.z + 24) / 48) * 100;
+  const playerLeft = ((pose.x - STORE_BOUNDS.minX) / (STORE_BOUNDS.maxX - STORE_BOUNDS.minX)) * 100;
+  const playerTop = ((pose.z - STORE_BOUNDS.minZ) / (STORE_BOUNDS.maxZ - STORE_BOUNDS.minZ)) * 100;
   return (
     <div className="store-modal-backdrop" role="dialog" aria-modal="true" aria-label="Store map">
       <div className="store-map-card">

@@ -3,6 +3,7 @@ import { BakeShadows, Environment, Lightformer, SoftShadows } from "@react-three
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
+import { ISLAND_CENTERS } from "./layout";
 
 RectAreaLightUniformsLib.init();
 
@@ -10,19 +11,19 @@ function StoreImageBasedLighting() {
   return (
     <Environment resolution={256} background={false} environmentIntensity={0.46}>
       <color attach="background" args={["#11191b"]} />
-      {[-8, 0, 8].map((x) => (
+      {[-5, 0, 5].map((x) => (
         <Lightformer
           key={x}
           form="rect"
           color="#e5f5e8"
           intensity={4.2}
-          position={[x, 5.2, -1]}
+          position={[x, 4.6, -1]}
           rotation={[Math.PI / 2, 0, 0]}
-          scale={[5.8, 0.42, 1]}
+          scale={[4.3, 0.42, 1]}
         />
       ))}
-      <Lightformer form="rect" color="#90b9df" intensity={1.4} position={[0, 1.2, 8]} scale={[10, 3.2, 1]} />
-      <Lightformer form="rect" color="#edc88d" intensity={0.8} position={[0, 1.6, -8]} rotation={[0, Math.PI, 0]} scale={[8, 2.5, 1]} />
+      <Lightformer form="rect" color="#90b9df" intensity={1.4} position={[0, 1.2, 7]} scale={[7, 3.2, 1]} />
+      <Lightformer form="rect" color="#edc88d" intensity={0.8} position={[0, 1.6, -7]} rotation={[0, Math.PI, 0]} scale={[7, 2.5, 1]} />
     </Environment>
   );
 }
@@ -40,8 +41,8 @@ function TrofferLight({ x, z, flicker = false }: { x: number; z: number; flicker
       ref={light}
       position={[x, 3.28, z]}
       rotation={[-Math.PI / 2, 0, 0]}
-      width={8.5}
-      height={9}
+      width={5.8}
+      height={5.6}
       power={nominalPower}
       color="#d9f1df"
     />
@@ -82,22 +83,22 @@ export function StoreLighting() {
       <StoreImageBasedLighting />
       <hemisphereLight args={["#d8e7df", "#172036", 0.24]} />
       <ambientLight color="#bfd0c7" intensity={0.045} />
-      <TrofferLight x={-8} z={-10} flicker />
-      <TrofferLight x={8} z={-10} />
-      <TrofferLight x={-8} z={10} />
-      <TrofferLight x={8} z={10} />
-      <AisleShadowLight x={-6.55} z={-4.7} />
-      <AisleShadowLight x={6.55} z={-4.7} />
+      <TrofferLight x={-4.2} z={-5.8} flicker />
+      <TrofferLight x={4.2} z={-5.8} />
+      <TrofferLight x={-4.2} z={5.8} />
+      <TrofferLight x={4.2} z={5.8} />
+      <AisleShadowLight x={ISLAND_CENTERS.west} z={ISLAND_CENTERS.z + 0.6} />
+      <AisleShadowLight x={ISLAND_CENTERS.east} z={ISLAND_CENTERS.z + 0.6} />
       <directionalLight
         position={[3, 6, 12]}
         intensity={0.38}
         color="#b7ccbf"
         castShadow
         shadow-mapSize={[1024, 1024]}
-        shadow-camera-left={-18}
-        shadow-camera-right={18}
-        shadow-camera-top={24}
-        shadow-camera-bottom={-24}
+        shadow-camera-left={-8}
+        shadow-camera-right={8}
+        shadow-camera-top={12}
+        shadow-camera-bottom={-12}
         shadow-bias={-0.0004}
       />
       <BakeShadows />

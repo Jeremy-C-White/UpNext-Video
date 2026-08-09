@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
-import { MeshReflectorMaterial, RoundedBox } from "@react-three/drei";
+import { RoundedBox } from "@react-three/drei";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
@@ -67,11 +67,11 @@ function createSurfaceTexture(kind: "tile" | "carpet" | "ceiling" | "wall", roug
       context.stroke();
     }
   } else if (kind === "carpet") {
-    context.fillStyle = roughness ? "#e2e2e2" : "#142e63";
+    context.fillStyle = roughness ? "#e2e2e2" : "#2a568d";
     context.fillRect(0, 0, 512, 512);
     for (let index = 0; index < 6200; index += 1) {
       const shade = Math.round(38 + random() * 42);
-      context.fillStyle = roughness ? `rgb(${150 + shade},${150 + shade},${150 + shade})` : `rgba(${18 + shade / 3},${42 + shade / 2},${82 + shade},.32)`;
+      context.fillStyle = roughness ? `rgb(${150 + shade},${150 + shade},${150 + shade})` : `rgba(${32 + shade / 2},${64 + shade * 0.65},${108 + shade},.36)`;
       const x = random() * 512;
       const y = random() * 512;
       context.fillRect(x, y, 1 + random() * 2, 2 + random() * 5);
@@ -196,10 +196,10 @@ function FloorSurfaces() {
   const carpetColor = useMemo(() => createSurfaceTexture("carpet"), []);
   const carpetBump = useMemo(() => createSurfaceTexture("carpet", true), []);
   useEffect(() => {
-    tileColor.repeat.set(18, 24);
-    tileRoughness.repeat.set(18, 24);
-    carpetColor.repeat.set(4, 12);
-    carpetBump.repeat.set(4, 12);
+    tileColor.repeat.set(8, 11);
+    tileRoughness.repeat.set(8, 11);
+    carpetColor.repeat.set(3, 8);
+    carpetBump.repeat.set(3, 8);
     return () => {
       tileColor.dispose();
       tileRoughness.dispose();
@@ -211,28 +211,23 @@ function FloorSurfaces() {
   return (
     <group name="period-floor-surfaces">
       <mesh rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-        <planeGeometry args={[36, 48]} />
-        <MeshReflectorMaterial
+        <planeGeometry args={[15, 22]} />
+        <meshPhysicalMaterial
           map={tileColor}
           roughnessMap={tileRoughness}
           bumpMap={tileRoughness}
-          bumpScale={0.0035}
-          resolution={512}
-          mirror={0.22}
-          mixStrength={0.48}
-          mixBlur={1}
-          blur={[320, 90]}
-          depthScale={0.82}
-          minDepthThreshold={0.38}
-          maxDepthThreshold={1.3}
-          roughness={0.43}
-          metalness={0.025}
+          bumpScale={0.0024}
+          roughness={0.39}
+          metalness={0.018}
+          clearcoat={0.24}
+          clearcoatRoughness={0.34}
+          envMapIntensity={0.48}
         />
       </mesh>
-      {[-11.1, 11.1].map((x) => (
-        <mesh key={x} position={[x, 0.012, -5.6]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
-          <planeGeometry args={[10.7, 31.2]} />
-          <meshStandardMaterial map={carpetColor} bumpMap={carpetBump} bumpScale={0.026} roughness={0.93} color="#d9e1f0" />
+      {[-5.15, 5.15].map((x) => (
+        <mesh key={x} position={[x, 0.012, -2]} rotation={[-Math.PI / 2, 0, 0]} receiveShadow>
+          <planeGeometry args={[4.2, 15.5]} />
+          <meshStandardMaterial map={carpetColor} bumpMap={carpetBump} bumpScale={0.014} roughness={0.91} color="#eef2f6" />
         </mesh>
       ))}
     </group>
@@ -241,9 +236,9 @@ function FloorSurfaces() {
 
 function Baseboards() {
   const pieces: Array<{ position: [number, number, number]; size: [number, number, number] }> = [
-    { position: [0, 0.16, -23.01], size: [35.7, 0.3, 0.12] },
-    { position: [-17.62, 0.16, 0], size: [0.12, 0.3, 46] },
-    { position: [17.62, 0.16, 0], size: [0.12, 0.3, 46] },
+    { position: [0, 0.16, -11.01], size: [14.7, 0.3, 0.12] },
+    { position: [-7.42, 0.16, 0], size: [0.12, 0.3, 21.8] },
+    { position: [7.42, 0.16, 0], size: [0.12, 0.3, 21.8] },
   ];
   return (
     <group name="baseboards">
@@ -260,8 +255,8 @@ function CeilingSurface() {
   const colorMap = useMemo(() => createSurfaceTexture("ceiling"), []);
   const roughnessMap = useMemo(() => createSurfaceTexture("ceiling", true), []);
   useEffect(() => {
-    colorMap.repeat.set(18, 24);
-    roughnessMap.repeat.set(18, 24);
+    colorMap.repeat.set(8, 11);
+    roughnessMap.repeat.set(8, 11);
     return () => {
       colorMap.dispose();
       roughnessMap.dispose();
@@ -269,7 +264,7 @@ function CeilingSurface() {
   }, [colorMap, roughnessMap]);
   return (
     <mesh position={[0, 3.55, 0]} receiveShadow>
-      <boxGeometry args={[36, 0.24, 48]} />
+      <boxGeometry args={[15, 0.24, 22]} />
       <meshStandardMaterial
         map={colorMap}
         roughnessMap={roughnessMap}
@@ -286,19 +281,19 @@ function StoreWalls() {
   const colorMap = useMemo(() => createSurfaceTexture("wall"), []);
   const roughnessMap = useMemo(() => createSurfaceTexture("wall", true), []);
   useEffect(() => {
-    colorMap.repeat.set(10, 4);
-    roughnessMap.repeat.set(10, 4);
+    colorMap.repeat.set(5, 3);
+    roughnessMap.repeat.set(5, 3);
     return () => {
       colorMap.dispose();
       roughnessMap.dispose();
     };
   }, [colorMap, roughnessMap]);
   const pieces: Array<{ position: [number, number, number]; size: [number, number, number] }> = [
-    { position: [0, 1.75, -23.25], size: [36.5, 3.5, 0.42] },
-    { position: [-17.85, 1.75, 0], size: [0.42, 3.5, 46.5] },
-    { position: [17.85, 1.75, 0], size: [0.42, 3.5, 46.5] },
-    { position: [-11.6, 1.75, 23.25], size: [12.7, 3.5, 0.42] },
-    { position: [11.6, 1.75, 23.25], size: [12.7, 3.5, 0.42] },
+    { position: [0, 1.75, -11.25], size: [15.5, 3.5, 0.42] },
+    { position: [-7.65, 1.75, 0], size: [0.42, 3.5, 22.5] },
+    { position: [7.65, 1.75, 0], size: [0.42, 3.5, 22.5] },
+    { position: [-5.15, 1.75, 11.25], size: [4.7, 3.5, 0.42] },
+    { position: [5.15, 1.75, 11.25], size: [4.7, 3.5, 0.42] },
   ];
   return (
     <group name="painted-store-walls">
@@ -564,7 +559,7 @@ function AutomaticDoors({ open }: { open: boolean }) {
     right.current.position.x = THREE.MathUtils.damp(right.current.position.x, open ? 2.05 : 0.96, 5.5, delta);
   });
   return (
-    <group position={[0, 1.48, 22.9]}>
+    <group position={[0, 1.48, 10.9]}>
       <mesh ref={left} position={[-0.96, 0, 0]} castShadow>
         <boxGeometry args={[1.84, 2.9, 0.04]} />
         <meshPhysicalMaterial color="#94b8d6" transparent opacity={0.28} roughness={0.08} transmission={0.25} />
@@ -620,13 +615,13 @@ function CheckoutArea() {
   });
   return (
     <group name="checkout">
-      <RoundedBox args={[4.2, 1.05, 1]} position={[13.1, 0.53, 14.6]} radius={0.004} smoothness={4} castShadow receiveShadow>
+      <RoundedBox args={[4.2, 1.05, 1]} position={[4.7, 0.53, 8.1]} radius={0.004} smoothness={4} castShadow receiveShadow>
         <meshStandardMaterial color="#e9d5a8" roughness={0.48} />
       </RoundedBox>
-      <RoundedBox args={[4.3, 0.055, 1.08]} position={[13.1, 1.08, 14.55]} radius={0.003} smoothness={4} castShadow>
+      <RoundedBox args={[4.3, 0.055, 1.08]} position={[4.7, 1.08, 8.05]} radius={0.003} smoothness={4} castShadow>
         <meshStandardMaterial color="#17469c" roughness={0.32} metalness={0.1} />
       </RoundedBox>
-      <group position={[14.25, 1.38, 14.55]} rotation={[0, -0.22, 0]}>
+      <group position={[5.85, 1.38, 8.05]} rotation={[0, -0.22, 0]}>
         <RoundedBox args={[0.56, 0.42, 0.38]} radius={0.008} smoothness={4} castShadow>
           <meshStandardMaterial color="#242a32" roughness={0.6} />
         </RoundedBox>
@@ -636,7 +631,7 @@ function CheckoutArea() {
         </mesh>
         <pointLight position={[0, -0.02, -0.45]} color="#4fa6dc" intensity={0.65} distance={1.4} />
       </group>
-      <group position={[11.8, 1.5, 14.65]}>
+      <group position={[3.4, 1.5, 8.15]}>
         <mesh position={[0, 0.36, 0]} castShadow>
           <sphereGeometry args={[0.11, 16, 12]} />
           <meshStandardMaterial color="#b9794e" roughness={0.68} />
@@ -645,7 +640,7 @@ function CheckoutArea() {
           <meshStandardMaterial color="#3461ad" roughness={0.7} />
         </RoundedBox>
       </group>
-      <group position={[13.1, 2.35, 14.02]} rotation={[0, 0, 0]}>
+      <group position={[4.7, 2.35, 7.52]} rotation={[0, 0, 0]}>
         <LabelPanel label="CHECKOUT" accent="#ffd54c" width={1.8} />
       </group>
     </group>
@@ -655,15 +650,15 @@ function CheckoutArea() {
 function SnackArea() {
   return (
     <group name="snacks">
-      <RoundedBox args={[3.5, 1.05, 0.72]} position={[-13.2, 0.53, 14.4]} radius={0.004} smoothness={4} castShadow>
+      <RoundedBox args={[3.5, 1.05, 0.72]} position={[-4.8, 0.53, 8.1]} radius={0.004} smoothness={4} castShadow>
         <meshStandardMaterial color="#d9c59c" roughness={0.58} />
       </RoundedBox>
-      {[-14.4, -13.8, -13.2, -12.6, -12].map((x, index) => (
-        <RoundedBox key={x} args={[0.22, 0.35, 0.05]} position={[x, 1.25 + (index % 2) * 0.012, 14.01]} rotation={[0, 0, (index - 2) * 0.012]} radius={0.002} smoothness={4} castShadow>
+      {[-6, -5.4, -4.8, -4.2, -3.6].map((x, index) => (
+        <RoundedBox key={x} args={[0.22, 0.35, 0.05]} position={[x, 1.25 + (index % 2) * 0.012, 7.71]} rotation={[0, 0, (index - 2) * 0.012]} radius={0.002} smoothness={4} castShadow>
           <meshStandardMaterial color={["#ee4466", "#ffcd4c", "#4ed1a1", "#965bce", "#f28a3b"][index]} roughness={0.48} />
         </RoundedBox>
       ))}
-      <group position={[-13.2, 2.05, 14.01]}>
+      <group position={[-4.8, 2.05, 7.71]}>
         <LabelPanel label="MOVIE NIGHT SNACKS" accent="#ffcf49" width={1.8} />
       </group>
     </group>
@@ -687,7 +682,7 @@ export function StoreEnvironment({ entered }: { entered: boolean }) {
   return (
     <group name="nextup-video-store">
       <color attach="background" args={["#10171b"]} />
-      <fog attach="fog" args={["#c8d6cc", 38, 68]} />
+      <fog attach="fog" args={["#c8d6cc", 19, 34]} />
       <FloorSurfaces />
       <CeilingSurface />
       <StoreWalls />
@@ -697,21 +692,21 @@ export function StoreEnvironment({ entered }: { entered: boolean }) {
       <IslandCore x={ISLAND_CENTERS.west} />
       <IslandCore x={ISLAND_CENTERS.east} />
       {STORE_SECTIONS.map((section) => <ShelfFixture key={section.id} section={section} />)}
-      <group position={[0, 2.85, -23.01]}>
+      <group position={[0, 2.85, -11.01]}>
         <LabelPanel label="NEXTUP VIDEO" accent="#ffd84d" subtitle="MOVIES · TELEVISION · MORE" width={3.4} />
       </group>
-      {[-12, -4, 4, 12].flatMap((x) => [-15, -5, 5, 15].map((z) => (
+      {[-5.25, -1.75, 1.75, 5.25].flatMap((x) => [-7.8, -2.6, 2.6, 7.8].map((z) => (
         <FluorescentFixture
           key={`${x}:${z}`}
           position={[x, 3.38, z]}
-          dead={x === 12 && z === 15}
-          flicker={x === -4 && z === -5}
+          dead={x === 5.25 && z === 7.8}
+          flicker={x === -1.75 && z === -2.6}
         />
       )))}
       <CheckoutArea />
       <SnackArea />
-      <PromoDisplay position={[11.4, 0, 5.5]} color="#d43b3b" label="COMING SOON" />
-      <PromoDisplay position={[0, 0, -13.1]} color="#224fa5" label="BE KIND, REWIND" />
+      <PromoDisplay position={[4.85, 0, 2.7]} color="#d43b3b" label="COMING SOON" />
+      <PromoDisplay position={[0, 0, -8.25]} color="#224fa5" label="BE KIND, REWIND" />
     </group>
   );
 }
