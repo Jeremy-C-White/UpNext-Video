@@ -1,10 +1,36 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
+import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
 import { usePosterTexture } from "./posterTextures";
 import type { StoreMedia } from "./types";
 
 const posterGeometry = new THREE.PlaneGeometry(0.61, 0.88);
+const caseGeometry = new RoundedBoxGeometry(0.68, 0.96, 0.1, 2, 0.018);
+const heldCaseGeometry = new RoundedBoxGeometry(0.72, 1.04, 0.075, 3, 0.025);
+
+function createScratchNormalTexture() {
+  const size = 128;
+  const data = new Uint8Array(size * size * 4);
+  for (let index = 0; index < size * size; index += 1) {
+    const x = index % size;
+    const y = Math.floor(index / size);
+    const scratch = Math.sin(x * 0.71 + y * 0.19) * Math.sin(x * 0.07 - y * 0.83);
+    const grain = Math.sin((index + 17) * 12.9898) * 0.5;
+    data[index * 4] = 128 + Math.round(scratch * 10 + grain * 3);
+    data[index * 4 + 1] = 128 + Math.round(scratch * 3 - grain * 3);
+    data[index * 4 + 2] = 250;
+    data[index * 4 + 3] = 255;
+  }
+  const texture = new THREE.DataTexture(data, size, size, THREE.RGBAFormat);
+  texture.colorSpace = THREE.NoColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(2.5, 4);
+  texture.needsUpdate = true;
+  return texture;
+}
+
+const scratchNormalTexture = createScratchNormalTexture();
 
 function PosterFace({ item, hovered, selected }: { item: StoreMedia; hovered: boolean; selected: boolean }) {
   const texture = usePosterTexture(item.posterUrl, "shelf");
@@ -17,20 +43,25 @@ function PosterFace({ item, hovered, selected }: { item: StoreMedia; hovered: bo
   return (
     <mesh
       position={[x + normalX * faceOffset, y, z + normalZ * faceOffset]}
-      rotation={[0, item.placement.rotationY, 0]}
-      scale={hovered ? 1.075 : 1}
+      rotation={[0, item.placement.rotationY, item.placement.rotationZ]}
+      scale={item.placement.scale * (hovered ? 1.065 : 1)}
       userData={{ storeItemId: item.id }}
       frustumCulled
       renderOrder={hovered ? 3 : 1}
     >
       <primitive object={posterGeometry} attach="geometry" dispose={null} />
-      <meshBasicMaterial
+      <meshPhysicalMaterial
         map={texture}
-        color={hovered ? "#fff4c4" : "#ffffff"}
-        toneMapped={false}
+        color={hovered ? "#fff4c9" : "#f5f0e8"}
+        roughness={0.52}
+        metalness={0}
+        clearcoat={0.82}
+        clearcoatRoughness={0.16}
+        clearcoatNormalMap={scratchNormalTexture}
+        clearcoatNormalScale={[0.1, 0.1]}
         side={THREE.FrontSide}
       />
-      {hovered && <pointLight position={[0, 0, 0.22]} color="#ffd84f" intensity={1.8} distance={2.1} />}
+      {hovered && <pointLight position={[0, 0, 0.22]} color="#f7df9a" intensity={0.85} distance={1.8} />}
     </mesh>
   );
 }
@@ -47,9 +78,9 @@ function CaseBodies({ items, selectedId }: { items: StoreMedia[]; selectedId: st
     if (!ref.current) return;
     items.forEach((item, index) => {
       position.set(...item.placement.position);
-      euler.set(0, item.placement.rotationY, 0);
+      euler.set(0, item.placement.rotationY, item.placement.rotationZ, "YXZ");
       quaternion.setFromEuler(euler);
-      scale.setScalar(item.id === selectedId ? 0.001 : 1);
+      scale.setScalar(item.id === selectedId ? 0.001 : item.placement.scale);
       matrix.compose(position, quaternion, scale);
       ref.current!.setMatrixAt(index, matrix);
     });
@@ -60,8 +91,8 @@ function CaseBodies({ items, selectedId }: { items: StoreMedia[]; selectedId: st
 
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, items.length]} castShadow receiveShadow>
-      <boxGeometry args={[0.68, 0.96, 0.1]} />
-      <meshStandardMaterial color="#10151e" roughness={0.38} metalness={0.08} />
+      <primitive object={caseGeometry} attach="geometry" dispose={null} />
+      <meshStandardMaterial color="#10151e" roughness={0.46} metalness={0.04} />
     </instancedMesh>
   );
 }
@@ -131,27 +162,53 @@ function createBackTexture(item: StoreMedia) {
   return texture;
 }
 
+function createRentalStickerTexture() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 256;
+  canvas.height = 112;
+  const context = canvas.getContext("2d")!;
+  context.fillStyle = "#eee8d4";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#173d82";
+  context.font = "bold 18px Arial";
+  context.fillText("NEXTUP VIDEO", 13, 24);
+  let x = 14;
+  for (let index = 0; index < 42; index += 1) {
+    const width = index % 5 === 0 ? 5 : index % 3 === 0 ? 3 : 2;
+    context.fillRect(x, 37, width, 46);
+    x += width + (index % 2 ? 3 : 2);
+  }
+  context.font = "12px monospace";
+  context.fillText("7 DAY RENTAL", 14, 102);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.anisotropy = 4;
+  return texture;
+}
+
 export function HeldCase({ item, flipped }: { item: StoreMedia | null; flipped: boolean }) {
   const group = useRef<THREE.Group>(null);
   const { camera } = useThree();
   const texture = usePosterTexture(item?.posterUrl || "", "inspect");
   const backTexture = useMemo(() => (item ? createBackTexture(item) : null), [item]);
+  const rentalSticker = useMemo(() => createRentalStickerTexture(), []);
   const targetPosition = useMemo(() => new THREE.Vector3(), []);
   const targetQuaternion = useMemo(() => new THREE.Quaternion(), []);
   const flipQuaternion = useMemo(() => new THREE.Quaternion(), []);
   const yAxis = useMemo(() => new THREE.Vector3(0, 1, 0), []);
 
   useEffect(() => () => backTexture?.dispose(), [backTexture]);
+  useEffect(() => () => rentalSticker.dispose(), [rentalSticker]);
 
   useFrame((_, delta) => {
     if (!group.current || !item) return;
-    targetPosition.set(0.52, -0.16, -1.28).applyQuaternion(camera.quaternion).add(camera.position);
+    targetPosition.set(-0.58, -0.08, -1.68).applyQuaternion(camera.quaternion).add(camera.position);
     targetQuaternion.copy(camera.quaternion);
     flipQuaternion.setFromAxisAngle(yAxis, flipped ? Math.PI : 0);
     targetQuaternion.multiply(flipQuaternion);
     group.current.position.lerp(targetPosition, 1 - Math.exp(-10 * delta));
     group.current.quaternion.slerp(targetQuaternion, 1 - Math.exp(-9 * delta));
-    const targetScale = 1;
+    const targetScale = 0.9;
     const nextScale = THREE.MathUtils.damp(group.current.scale.x, targetScale, 9, delta);
     group.current.scale.setScalar(nextScale);
   });
@@ -159,17 +216,59 @@ export function HeldCase({ item, flipped }: { item: StoreMedia | null; flipped: 
   if (!item) return null;
   return (
     <group ref={group} scale={0.08} renderOrder={20}>
+      <pointLight position={[0.65, 0.78, 0.8]} color="#e8f3e6" intensity={1.25} distance={2.4} />
       <mesh castShadow>
-        <boxGeometry args={[0.72, 1.04, 0.075]} />
-        <meshStandardMaterial color="#101722" roughness={0.22} metalness={0.05} />
+        <primitive object={heldCaseGeometry} attach="geometry" dispose={null} />
+        <meshStandardMaterial color="#0d131c" roughness={0.3} metalness={0.03} />
+      </mesh>
+      <mesh position={[-0.355, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.034, 0.034, 0.88, 12]} />
+        <meshStandardMaterial color="#171e29" roughness={0.36} />
       </mesh>
       <mesh position={[0, 0, 0.039]} renderOrder={21}>
         <planeGeometry args={[0.65, 0.96]} />
-        <meshBasicMaterial map={texture} toneMapped={false} />
+        <meshStandardMaterial map={texture} color="#f4efe7" roughness={0.72} metalness={0} />
+      </mesh>
+      <mesh position={[0, 0, 0.042]} renderOrder={22}>
+        <planeGeometry args={[0.662, 0.972]} />
+        <meshPhysicalMaterial
+          color="#ffffff"
+          transparent
+          opacity={0.13}
+          depthWrite={false}
+          roughness={0.12}
+          metalness={0}
+          clearcoat={1}
+          clearcoatRoughness={0.08}
+          clearcoatNormalMap={scratchNormalTexture}
+          clearcoatNormalScale={[0.18, 0.18]}
+        />
       </mesh>
       <mesh position={[0, 0, -0.039]} rotation={[0, Math.PI, 0]} renderOrder={21}>
         <planeGeometry args={[0.65, 0.96]} />
-        <meshBasicMaterial map={backTexture || undefined} color={backTexture ? "#ffffff" : "#163b88"} toneMapped={false} />
+        <meshStandardMaterial map={backTexture || undefined} color={backTexture ? "#f5f0e8" : "#163b88"} roughness={0.66} />
+      </mesh>
+      <mesh position={[0, 0, -0.042]} rotation={[0, Math.PI, 0]} renderOrder={22}>
+        <planeGeometry args={[0.662, 0.972]} />
+        <meshPhysicalMaterial
+          color="#ffffff"
+          transparent
+          opacity={0.1}
+          depthWrite={false}
+          roughness={0.13}
+          clearcoat={1}
+          clearcoatRoughness={0.1}
+          clearcoatNormalMap={scratchNormalTexture}
+          clearcoatNormalScale={[0.15, 0.15]}
+        />
+      </mesh>
+      <mesh position={[0.13, -0.31, -0.044]} rotation={[0, Math.PI, -0.018]} renderOrder={23}>
+        <planeGeometry args={[0.31, 0.135]} />
+        <meshStandardMaterial map={rentalSticker} roughness={0.78} polygonOffset polygonOffsetFactor={-2} />
+      </mesh>
+      <mesh position={[-0.19, 0.28, -0.044]} rotation={[0, Math.PI, 0.025]} renderOrder={23}>
+        <planeGeometry args={[0.14, 0.29]} />
+        <meshStandardMaterial color="#aeb7bf" metalness={0.42} roughness={0.5} polygonOffset polygonOffsetFactor={-2} />
       </mesh>
     </group>
   );

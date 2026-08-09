@@ -15,6 +15,8 @@ export type Vec3Tuple = [number, number, number];
 export interface StorePlacement {
   position: Vec3Tuple;
   rotationY: number;
+  rotationZ: number;
+  scale: number;
   sectionId: string;
   aisle: string;
   shelf: string;
@@ -64,4 +66,3 @@ export interface StoreSectionDefinition {
   rowGap: number;
   accent: string;
 }
-

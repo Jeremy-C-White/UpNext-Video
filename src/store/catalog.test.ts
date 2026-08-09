@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Show, UserEpisode, UserShow } from "../types";
 import { buildStoreCatalog } from "./catalog";
+import { createPlacement, sectionCapacity, STORE_SECTIONS } from "./layout";
 
 const makeShow = (id: number, name: string, genres: string[], isMovie = true): Show => ({
   id,
@@ -48,6 +49,17 @@ describe("NEXTUP VIDEO catalog", () => {
     expect(new Set(catalog.map((item) => item.id)).size).toBe(catalog.length);
     expect(catalog.length).toBeGreaterThan(100);
     expect(catalog.every((item) => Number.isFinite(item.placement.rotationY))).toBe(true);
+    expect(catalog.some((item) => Math.abs(item.placement.rotationZ) > 0.005)).toBe(true);
+    expect(catalog.every((item) => item.placement.scale >= 0.985 && item.placement.scale <= 1.01)).toBe(true);
+  });
+
+  it("leaves believable rented-out gaps without overlapping physical slots", () => {
+    const section = STORE_SECTIONS.find((candidate) => candidate.id === "new-releases")!;
+    const placements = Array.from({ length: sectionCapacity(section) }, (_, index) => createPlacement(section, index));
+    const occupiedSlots = placements.map((placement) => `${placement.row}:${placement.column}`);
+
+    expect(new Set(occupiedSlots).size).toBe(occupiedSlots.length);
+    expect(occupiedSlots).not.toContain("0:5");
+    expect(occupiedSlots).not.toContain("2:2");
   });
 });
-

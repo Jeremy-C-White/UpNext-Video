@@ -33,6 +33,7 @@ export function StoreController({
   const velocity = useRef(new THREE.Vector3());
   const yaw = useRef(0);
   const pitch = useRef(0);
+  const roll = useRef(0);
   const hoveredId = useRef<string | null>(null);
   const distanceWalked = useRef(0);
   const lastPoseReport = useRef(0);
@@ -56,7 +57,7 @@ export function StoreController({
   useEffect(() => {
     const canvas = gl.domElement;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (["KeyW", "KeyA", "KeyS", "KeyD", "ShiftLeft", "ShiftRight"].includes(event.code)) {
+      if (["KeyW", "KeyA", "KeyS", "KeyD", "ShiftLeft", "ShiftRight", "Space"].includes(event.code)) {
         keys.current.add(event.code);
         event.preventDefault();
       }
@@ -96,6 +97,7 @@ export function StoreController({
       }
     };
     const handleContextMenu = (event: MouseEvent) => event.preventDefault();
+    const handleDrag = (event: DragEvent) => event.preventDefault();
     const handlePointerLockChange = () => {
       const locked = document.pointerLockElement === canvas;
       if (!locked) keys.current.clear();
@@ -107,6 +109,8 @@ export function StoreController({
     document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mousedown", handleMouseDown);
     canvas.addEventListener("contextmenu", handleContextMenu);
+    canvas.addEventListener("dragstart", handleDrag);
+    canvas.addEventListener("drop", handleDrag);
     document.addEventListener("pointerlockchange", handlePointerLockChange);
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
@@ -114,14 +118,21 @@ export function StoreController({
       document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mousedown", handleMouseDown);
       canvas.removeEventListener("contextmenu", handleContextMenu);
+      canvas.removeEventListener("dragstart", handleDrag);
+      canvas.removeEventListener("drop", handleDrag);
       document.removeEventListener("pointerlockchange", handlePointerLockChange);
     };
   }, [gl, onLockChange, onOpenFinder, onReturnCase, onSelect, onToggleMap, paused, selectedId]);
 
-  useFrame((_, rawDelta) => {
+  useFrame(({ clock }, rawDelta) => {
     const delta = Math.min(rawDelta, 0.05);
-    rotation.set(pitch.current, yaw.current, 0);
+    const strafeInput = Number(keys.current.has("KeyD")) - Number(keys.current.has("KeyA"));
+    const targetRoll = !paused && !selectedId ? -strafeInput * 0.012 : 0;
+    roll.current = THREE.MathUtils.damp(roll.current, targetRoll, 8.5, delta);
+    const idleSway = Math.sin(clock.elapsedTime * 0.72) * 0.0025;
+    rotation.set(pitch.current, yaw.current, roll.current + idleSway);
     camera.quaternion.setFromEuler(rotation);
+    let verticalOffset = Math.sin(clock.elapsedTime * 1.35) * 0.004;
 
     if (!paused && !selectedId && document.pointerLockElement === gl.domElement) {
       direction.set(0, 0, 0);
@@ -150,10 +161,11 @@ export function StoreController({
       camera.position.x = moved.x;
       camera.position.z = moved.z;
       const bob = actualDistance > 0.0001 ? Math.sin(distanceWalked.current * 8.4) * 0.018 : 0;
-      camera.position.y = THREE.MathUtils.damp(camera.position.y, PLAYER_SPAWN[1] + bob, 14, delta);
+      verticalOffset += bob;
     } else {
       velocity.current.multiplyScalar(Math.exp(-12 * delta));
     }
+    camera.position.y = THREE.MathUtils.damp(camera.position.y, PLAYER_SPAWN[1] + verticalOffset, 14, delta);
 
     raycastElapsed.current += delta;
     if (!paused && !selectedId && raycastElapsed.current >= 0.045) {

@@ -10,6 +10,23 @@ export const STORE_BOUNDS = {
 
 export const PLAYER_SPAWN: Vec3Tuple = [0, 1.68, 20.4];
 
+const EMPTY_SLOTS: Record<string, number[]> = {
+  reserved: [7],
+  "new-releases": [5, 18],
+  action: [6, 20],
+  comedy: [3, 17],
+  horror: [10, 22],
+  "sci-fi": [4, 19],
+  television: [8, 21],
+  "staff-picks": [2, 16],
+};
+
+function placementNoise(sectionId: string, index: number, salt: number) {
+  const sectionSeed = Array.from(sectionId).reduce((sum, character) => sum + character.charCodeAt(0), 0);
+  const value = Math.sin((sectionSeed * 97 + index * 131 + salt * 53) * 12.9898) * 43758.5453;
+  return value - Math.floor(value);
+}
+
 export const STORE_SECTIONS: StoreSectionDefinition[] = [
   {
     id: "reserved",
@@ -118,17 +135,26 @@ export const STORE_SECTIONS: StoreSectionDefinition[] = [
 ];
 
 export function sectionCapacity(section: StoreSectionDefinition) {
-  return section.columns * section.rows;
+  return section.columns * section.rows - (EMPTY_SLOTS[section.id]?.length || 0);
 }
 
 export function createPlacement(section: StoreSectionDefinition, index: number): StorePlacement {
-  const row = Math.floor(index / section.columns);
-  const column = index % section.columns;
+  const emptySlots = new Set(EMPTY_SLOTS[section.id] || []);
+  const availableSlots = Array.from(
+    { length: section.columns * section.rows },
+    (_, slot) => slot,
+  ).filter((slot) => !emptySlots.has(slot));
+  const physicalSlot = availableSlots[index] ?? index;
+  const row = Math.floor(physicalSlot / section.columns);
+  const column = physicalSlot % section.columns;
   const localX = (column - (section.columns - 1) / 2) * section.columnGap;
   const localY = ((section.rows - 1) / 2 - row) * section.rowGap;
   const cos = Math.cos(section.rotationY);
   const sin = Math.sin(section.rotationY);
-  const localZ = 0.25;
+  const localZ = 0.25 + (placementNoise(section.id, physicalSlot, 1) - 0.5) * 0.075;
+  const yawVariation = (placementNoise(section.id, physicalSlot, 2) - 0.5) * 0.022;
+  const lean = (placementNoise(section.id, physicalSlot, 3) - 0.5) * 0.052;
+  const caseScale = 0.985 + placementNoise(section.id, physicalSlot, 4) * 0.025;
 
   return {
     position: [
@@ -136,7 +162,9 @@ export function createPlacement(section: StoreSectionDefinition, index: number):
       section.center[1] + localY,
       section.center[2] - localX * sin + localZ * cos,
     ],
-    rotationY: section.rotationY,
+    rotationY: section.rotationY + yawVariation,
+    rotationZ: lean,
+    scale: caseScale,
     sectionId: section.id,
     aisle: section.aisle,
     shelf: `Shelf ${String.fromCharCode(65 + row)}`,

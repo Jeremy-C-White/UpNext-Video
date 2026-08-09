@@ -70,6 +70,8 @@ export default function StoreView({
   const [guideId, setGuideId] = useState<string | null>(null);
   const [muted, setMuted] = useState(false);
   const [rendererFailed, setRendererFailed] = useState(false);
+  const [rendererReady, setRendererReady] = useState(false);
+  const [tabHidden, setTabHidden] = useState(() => typeof document !== "undefined" && document.hidden);
   const [unsupported] = useState(() => !supportsDesktopStore());
   const [canvasElement, setCanvasElement] = useState<HTMLCanvasElement | null>(null);
   const [playerPose, setPlayerPose] = useState<PlayerPose>({ x: PLAYER_SPAWN[0], y: PLAYER_SPAWN[1], z: PLAYER_SPAWN[2], yaw: 0 });
@@ -95,7 +97,13 @@ export default function StoreView({
   }, []);
 
   useEffect(() => { audio.current?.setMuted(muted); }, [muted]);
-  useEffect(() => { audio.current?.setPaused(paused || !entered); }, [entered, paused]);
+  useEffect(() => { audio.current?.setPaused(paused || tabHidden || !entered); }, [entered, paused, tabHidden]);
+
+  useEffect(() => {
+    const handleVisibility = () => setTabHidden(document.hidden);
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => document.removeEventListener("visibilitychange", handleVisibility);
+  }, []);
 
   useEffect(() => {
     if (!canvasElement) return;
@@ -103,8 +111,13 @@ export default function StoreView({
       event.preventDefault();
       setRendererFailed(true);
     };
+    const handleRestored = () => setRendererFailed(false);
     canvasElement.addEventListener("webglcontextlost", handleLost);
-    return () => canvasElement.removeEventListener("webglcontextlost", handleLost);
+    canvasElement.addEventListener("webglcontextrestored", handleRestored);
+    return () => {
+      canvasElement.removeEventListener("webglcontextlost", handleLost);
+      canvasElement.removeEventListener("webglcontextrestored", handleRestored);
+    };
   }, [canvasElement]);
 
   const items = useMemo(() => buildStoreCatalog({
@@ -121,14 +134,26 @@ export default function StoreView({
 
   const requestPointerLock = useCallback(() => {
     if (paused || !canvasElement) return;
-    void canvasElement.requestPointerLock();
+    try {
+      const request = canvasElement.requestPointerLock({ unadjustedMovement: true });
+      if (request && typeof request.catch === "function") {
+        void request.catch(() => canvasElement.requestPointerLock());
+      }
+    } catch {
+      void canvasElement.requestPointerLock();
+    }
   }, [canvasElement, paused]);
 
   const startStore = useCallback(() => {
     setEntered(true);
     void audio.current?.start();
-    requestPointerLock();
-  }, [requestPointerLock]);
+    const shell = canvasElement?.closest(".store-shell") as HTMLElement | null;
+    if (shell?.requestFullscreen && !document.fullscreenElement) {
+      void shell.requestFullscreen().then(requestPointerLock).catch(requestPointerLock);
+    } else {
+      requestPointerLock();
+    }
+  }, [canvasElement, requestPointerLock]);
 
   const selectCase = useCallback((id: string) => {
     setSelectedId(id);
@@ -163,8 +188,12 @@ export default function StoreView({
 
   const exitStore = useCallback(() => {
     if (document.pointerLockElement) document.exitPointerLock();
+    if (document.fullscreenElement) void document.exitFullscreen();
     onExit();
   }, [onExit]);
+
+  const markRendererReady = useCallback(() => setRendererReady(true), []);
+  const scenePaused = paused || tabHidden;
 
   if (unsupported) {
     return (
@@ -180,14 +209,14 @@ export default function StoreView({
         <Suspense fallback={<div className="store-render-loading">Preparing the showroom…</div>}>
           <Canvas
             shadows
-            dpr={[1, 1.7]}
-            frameloop={paused ? "never" : "always"}
-            camera={{ fov: 66, near: 0.06, far: 78, position: PLAYER_SPAWN }}
+            dpr={[0.75, 1.5]}
+            frameloop={scenePaused ? "never" : "always"}
+            camera={{ fov: 53, near: 0.06, far: 78, position: PLAYER_SPAWN }}
             gl={{ antialias: true, alpha: false, powerPreference: "high-performance", stencil: false }}
             onCreated={({ gl }) => {
               gl.outputColorSpace = THREE.SRGBColorSpace;
-              gl.toneMapping = THREE.ACESFilmicToneMapping;
-              gl.toneMappingExposure = 1.08;
+              gl.toneMapping = THREE.AgXToneMapping;
+              gl.toneMappingExposure = 0.86;
               gl.shadowMap.type = THREE.PCFSoftShadowMap;
               setCanvasElement(gl.domElement);
             }}
@@ -198,9 +227,11 @@ export default function StoreView({
               hoveredId={hoveredId}
               selected={selected}
               flipped={flipped}
-              paused={paused || finderOpen || mapOpen || !entered}
+              paused={scenePaused || finderOpen || mapOpen || !entered}
               playerPose={playerPose}
               guideTarget={guide ? guide.placement.position : null}
+              prewarm={!catalogLoading}
+              onReady={markRendererReady}
               onHover={setHoveredId}
               onSelect={selectCase}
               onReturnCase={returnCase}
@@ -221,10 +252,10 @@ export default function StoreView({
             <h1><b>NEXTUP</b><em>VIDEO</em></h1>
             <p>A walkable video store stocked from your real NextUp catalog.</p>
             <div className="store-stocking-status">
-              <i className={catalogLoading ? "is-loading" : "is-ready"} />
-              <div><strong>{catalogLoading ? "Preparing the store…" : `${items.length} titles stocked`}</strong><span>{catalogLoading ? "Organizing Horror · Loading Staff Picks · Rewinding tapes…" : "The doors are open. Headphones recommended."}</span></div>
+              <i className={catalogLoading || !rendererReady ? "is-loading" : "is-ready"} />
+              <div><strong>{catalogLoading ? "Preparing the store…" : !rendererReady ? "Warming the lights and materials…" : `${items.length} titles stocked`}</strong><span>{catalogLoading ? "Organizing Horror · Loading Staff Picks · Rewinding tapes…" : !rendererReady ? "Compiling the showroom before the doors open…" : "The doors are open. Headphones recommended."}</span></div>
             </div>
-            <button onClick={startStore} disabled={catalogLoading || !canvasElement}><DoorOpen /> Enter NextUp Video</button>
+            <button onClick={startStore} disabled={catalogLoading || !rendererReady || !canvasElement}><DoorOpen /> Enter NextUp Video</button>
             <small>Desktop controls: WASD + mouse · Esc returns your cursor</small>
           </div>
         </div>
