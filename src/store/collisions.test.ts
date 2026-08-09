@@ -17,7 +17,7 @@ describe("store collision movement", () => {
 
   it("keeps open walking lanes in the compact store", () => {
     expect(canOccupy(5.8, 5.8)).toBe(true);
-    expect(canOccupy(-5.8, 5.8)).toBe(true);
+    expect(canOccupy(-5.8, 4.2)).toBe(true);
     expect(canOccupy(0, 2.55)).toBe(false);
   });
 

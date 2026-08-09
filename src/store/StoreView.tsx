@@ -256,9 +256,10 @@ export default function StoreView({
             gl={{ antialias: true, alpha: false, powerPreference: "high-performance", stencil: false }}
             onCreated={({ gl }) => {
               gl.outputColorSpace = THREE.SRGBColorSpace;
-              // EffectComposer owns the final AgX pass. Keeping the renderer
-              // linear avoids two device-dependent tone-mapping paths.
-              gl.toneMapping = THREE.NoToneMapping;
+              // Keep grading on the native renderer. Off-screen composer passes
+              // caused intermittent half-frame failures on some desktop GPUs.
+              gl.toneMapping = THREE.AgXToneMapping;
+              gl.toneMappingExposure = 0.72;
               gl.shadowMap.type = THREE.PCFSoftShadowMap;
               gl.debug.onShaderError = (context, program, vertexShader, fragmentShader) => {
                 console.error("NEXTUP VIDEO shader compilation failed", {

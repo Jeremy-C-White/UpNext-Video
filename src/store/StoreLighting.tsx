@@ -1,6 +1,5 @@
-import { useMemo, useRef } from "react";
+import { useMemo } from "react";
 import { Environment, Lightformer } from "@react-three/drei";
-import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { RectAreaLightUniformsLib } from "three/addons/lights/RectAreaLightUniformsLib.js";
 import { ISLAND_CENTERS } from "./layout";
@@ -28,21 +27,14 @@ function StoreImageBasedLighting() {
   );
 }
 
-function TrofferLight({ x, z, flicker = false }: { x: number; z: number; flicker?: boolean }) {
-  const light = useRef<THREE.RectAreaLight>(null);
+function TrofferLight({ x, z }: { x: number; z: number }) {
   const width = 5.8;
   const height = 5.6;
   // Match the pre-shrink brightness without coupling the result to R3F's prop
   // assignment order for RectAreaLight.power, width, and height.
   const nominalIntensity = 720 / (width * height * Math.PI);
-  useFrame(({ clock }) => {
-    if (!light.current || !flicker) return;
-    const drop = Math.sin(clock.elapsedTime * 37) > 0.82 ? 0.2 : 1;
-    light.current.intensity = THREE.MathUtils.lerp(light.current.intensity, nominalIntensity * drop, 0.24);
-  });
   return (
     <rectAreaLight
-      ref={light}
       position={[x, 3.28, z]}
       rotation={[-Math.PI / 2, 0, 0]}
       width={width}
@@ -89,7 +81,7 @@ export function StoreLighting() {
       <StoreImageBasedLighting />
       <hemisphereLight args={["#d8e7df", "#172036", 0.24]} />
       <ambientLight color="#bfd0c7" intensity={0.075} />
-      <TrofferLight x={-4.2} z={-5.8} flicker />
+      <TrofferLight x={-4.2} z={-5.8} />
       <TrofferLight x={4.2} z={-5.8} />
       <TrofferLight x={-4.2} z={5.8} />
       <TrofferLight x={4.2} z={5.8} />

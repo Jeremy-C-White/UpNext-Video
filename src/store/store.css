@@ -19,6 +19,15 @@
   isolation: isolate;
 }
 
+.store-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  background: radial-gradient(ellipse at 50% 46%, transparent 48%, rgba(2, 8, 18, .08) 72%, rgba(2, 8, 18, .24) 100%);
+}
+
 .store-shell canvas { display: block; width: 100%; height: 100%; outline: none; touch-action: none; user-select: none; -webkit-user-select: none; }
 .store-shell button, .store-shell input { font: inherit; }
 .store-shell input { user-select: text; -webkit-user-select: text; }

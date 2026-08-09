@@ -361,7 +361,7 @@ function ShelfSpines({ section, width }: { section: StoreSectionDefinition; widt
   const geometry = useMemo(() => new RoundedBoxGeometry(0.016, 0.184, 0.013, 2, 0.00075), []);
   const printGeometry = useMemo(() => new THREE.PlaneGeometry(0.014, 0.17), []);
   const printTexture = useMemo(() => createSpinePrintTexture(), []);
-  const palette = useMemo(() => ["#102442", "#842a32", "#b9ae8c", "#263c2b", "#a67932", "#493754", "#171a20", "#d4d0bd", "#4b6179"].map((color) => new THREE.Color(color)), []);
+  const palette = useMemo(() => ["#1d4c8b", "#bd4851", "#e8dcae", "#39734f", "#d69b3b", "#765489", "#333946", "#ece7d4", "#6f91b6"].map((color) => new THREE.Color(color)), []);
   useLayoutEffect(() => {
     if (!ref.current || !printRef.current) return;
     const matrix = new THREE.Matrix4();
@@ -443,28 +443,9 @@ function ShelfSpines({ section, width }: { section: StoreSectionDefinition; widt
   );
 }
 
-function ShelfFixture({ section }: { section: StoreSectionDefinition }) {
-  const width = sectionWidth(section);
-  const height = sectionHeight(section);
-  const backColor = useMemo(() => createShelfBackTexture(false), []);
-  const backRoughness = useMemo(() => createShelfBackTexture(true), []);
-  useEffect(() => () => {
-    backColor.dispose();
-    backRoughness.dispose();
-  }, [backColor, backRoughness]);
+function ShelfFixtureFace({ section, width, height }: { section: StoreSectionDefinition; width: number; height: number }) {
   return (
-    <group position={section.center} rotation={[0, section.rotationY, 0]} name={`fixture-${section.id}`}>
-      <RoundedBox args={[width, height, 0.055]} position={[0, 0, -0.045]} radius={0.003} smoothness={4} castShadow receiveShadow>
-        <meshStandardMaterial
-          map={backColor}
-          roughnessMap={backRoughness}
-          bumpMap={backRoughness}
-          bumpScale={-0.0014}
-          color="#d8e1f2"
-          roughness={0.48}
-          metalness={0.1}
-        />
-      </RoundedBox>
+    <group>
       <ShelfSpines section={section} width={width} />
       {Array.from({ length: section.rows + 1 }, (_, index) => {
         const y = (section.rows / 2 - index) * section.rowGap + 0.035;
@@ -502,6 +483,39 @@ function ShelfFixture({ section }: { section: StoreSectionDefinition }) {
   );
 }
 
+function ShelfFixture({ section }: { section: StoreSectionDefinition }) {
+  const width = sectionWidth(section);
+  const height = sectionHeight(section);
+  const doubleSided = section.id === "new-releases" || section.id === "reserved";
+  const backColor = useMemo(() => createShelfBackTexture(false), []);
+  const backRoughness = useMemo(() => createShelfBackTexture(true), []);
+  useEffect(() => () => {
+    backColor.dispose();
+    backRoughness.dispose();
+  }, [backColor, backRoughness]);
+  return (
+    <group position={section.center} rotation={[0, section.rotationY, 0]} name={`fixture-${section.id}`}>
+      <RoundedBox args={[width, height, 0.055]} position={[0, 0, doubleSided ? 0 : -0.045]} radius={0.003} smoothness={4} castShadow receiveShadow>
+        <meshStandardMaterial
+          map={backColor}
+          roughnessMap={backRoughness}
+          bumpMap={backRoughness}
+          bumpScale={-0.0014}
+          color="#d8e1f2"
+          roughness={0.48}
+          metalness={0.1}
+        />
+      </RoundedBox>
+      <ShelfFixtureFace section={section} width={width} height={height} />
+      {doubleSided && (
+        <group rotation={[0, Math.PI, 0]}>
+          <ShelfFixtureFace section={section} width={width} height={height} />
+        </group>
+      )}
+    </group>
+  );
+}
+
 function IslandCore({ x }: { x: number }) {
   const reference = STORE_SECTIONS.find((section) => section.id === "comedy")!;
   const runLength = sectionWidth(reference);
@@ -523,7 +537,7 @@ function IslandCore({ x }: { x: number }) {
   );
 }
 
-function FluorescentFixture({ position, dead = false, flicker = false }: { position: [number, number, number]; dead?: boolean; flicker?: boolean }) {
+function FluorescentFixture({ position, dead = false }: { position: [number, number, number]; dead?: boolean }) {
   const tubeMaterial = useMemo(() => new THREE.MeshStandardMaterial({
     color: dead ? "#7f8580" : "#e6f1e5",
     emissive: dead ? "#111512" : "#d9f3df",
@@ -531,11 +545,6 @@ function FluorescentFixture({ position, dead = false, flicker = false }: { posit
     roughness: 0.26,
   }), [dead]);
   useEffect(() => () => tubeMaterial.dispose(), [tubeMaterial]);
-  useFrame(({ clock }) => {
-    if (!flicker || dead) return;
-    const pulse = Math.sin(clock.elapsedTime * 37) > 0.82 ? 0.22 : 1;
-    tubeMaterial.emissiveIntensity = THREE.MathUtils.lerp(tubeMaterial.emissiveIntensity, 5.8 * pulse, 0.24);
-  });
   return (
     <group position={position}>
       <RoundedBox args={[1.2, 0.05, 0.58]} radius={0.003} smoothness={4}>
@@ -580,85 +589,241 @@ function createCrtTexture() {
   const canvas = document.createElement("canvas");
   canvas.width = 256;
   canvas.height = 192;
+  const context = canvas.getContext("2d")!;
+  const background = context.createLinearGradient(0, 0, 0, canvas.height);
+  background.addColorStop(0, "#1c4e8f");
+  background.addColorStop(1, "#071833");
+  context.fillStyle = background;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = "#f3d34e";
+  context.fillRect(18, 22, 220, 62);
+  context.fillStyle = "#061632";
+  context.font = "bold 28px Arial";
+  context.textAlign = "center";
+  context.fillText("NEXTUP", 128, 61);
+  context.fillStyle = "#e7edf8";
+  context.font = "bold 13px monospace";
+  context.fillText("CHECKOUT READY", 128, 116);
+  context.font = "11px monospace";
+  context.fillStyle = "#91d9bf";
+  context.fillText("MEMBER  •  RENTAL  •  RETURN", 128, 144);
+  context.fillStyle = "rgba(255,255,255,.11)";
+  for (let y = 2; y < 192; y += 4) context.fillRect(0, y, 256, 1);
   const texture = new THREE.CanvasTexture(canvas);
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
   return texture;
 }
 
 function CheckoutArea() {
-  const crtScreen = useRef<THREE.MeshStandardMaterial>(null);
-  const lastCrtFrame = useRef(0);
   const crtTexture = useMemo(() => createCrtTexture(), []);
   useEffect(() => () => crtTexture.dispose(), [crtTexture]);
-  useFrame(({ clock }) => {
-    if (crtScreen.current) crtScreen.current.emissiveIntensity = 1.4 + Math.sin(clock.elapsedTime * 4.8) * 0.22;
-    if (clock.elapsedTime - lastCrtFrame.current < 1 / 12) return;
-    lastCrtFrame.current = clock.elapsedTime;
-    const canvas = crtTexture.image as HTMLCanvasElement;
-    const context = canvas.getContext("2d")!;
-    const pulse = 0.5 + Math.sin(clock.elapsedTime * 1.7) * 0.5;
-    context.fillStyle = pulse > 0.45 ? "#143a78" : "#531d4f";
-    context.fillRect(0, 0, canvas.width, canvas.height);
-    context.fillStyle = pulse > 0.45 ? "#f3d34e" : "#62d5d0";
-    context.fillRect(20, 26, 216, 62);
-    context.fillStyle = "#061632";
-    context.font = "bold 28px Arial";
-    context.textAlign = "center";
-    context.fillText("NEXTUP", 128, 66);
-    context.fillStyle = "rgba(255,255,255,.14)";
-    for (let y = 2; y < 192; y += 4) context.fillRect(0, y, 256, 1);
-    context.fillStyle = "#e7edf8";
-    context.font = "bold 13px monospace";
-    context.fillText("PREVIEWS STARTING SOON", 128, 135);
-    crtTexture.needsUpdate = true;
-  });
   return (
     <group name="checkout">
       <RoundedBox args={[4.2, 1.05, 1]} position={[4.7, 0.53, 8.1]} radius={0.004} smoothness={4} castShadow receiveShadow>
-        <meshStandardMaterial color="#e9d5a8" roughness={0.48} />
+        <meshStandardMaterial color="#dcc69b" roughness={0.52} />
       </RoundedBox>
       <RoundedBox args={[4.3, 0.055, 1.08]} position={[4.7, 1.08, 8.05]} radius={0.003} smoothness={4} castShadow>
         <meshStandardMaterial color="#17469c" roughness={0.32} metalness={0.1} />
       </RoundedBox>
+      {[-1.35, -0.45, 0.45, 1.35].map((offset) => (
+        <RoundedBox key={offset} args={[0.78, 0.76, 0.025]} position={[4.7 + offset, 0.53, 7.588]} radius={0.002} smoothness={3} castShadow>
+          <meshStandardMaterial color={Math.abs(offset) > 1 ? "#d5be8f" : "#e4d0a7"} roughness={0.64} />
+        </RoundedBox>
+      ))}
+      <RoundedBox args={[1.25, 0.14, 0.022]} position={[4.7, 0.66, 7.572]} radius={0.002} smoothness={3}>
+        <meshStandardMaterial color="#101820" metalness={0.22} roughness={0.36} />
+      </RoundedBox>
+      <mesh position={[4.7, 0.66, 7.559]} rotation={[0, Math.PI, 0]}>
+        <planeGeometry args={[0.78, 0.045]} />
+        <meshBasicMaterial color="#d9e6ee" />
+      </mesh>
       <group position={[5.85, 1.38, 8.05]} rotation={[0, -0.22, 0]}>
         <RoundedBox args={[0.56, 0.42, 0.38]} radius={0.008} smoothness={4} castShadow>
           <meshStandardMaterial color="#242a32" roughness={0.6} />
         </RoundedBox>
         <mesh position={[0, 0.01, -0.195]} rotation={[0, Math.PI, 0]}>
           <planeGeometry args={[0.43, 0.31]} />
-          <meshStandardMaterial ref={crtScreen} map={crtTexture} color="#dcecff" emissive="#58aee4" emissiveMap={crtTexture} emissiveIntensity={1.5} roughness={0.24} />
+          <meshStandardMaterial map={crtTexture} color="#dcecff" emissive="#58aee4" emissiveMap={crtTexture} emissiveIntensity={1.15} roughness={0.24} />
         </mesh>
-        <pointLight position={[0, -0.02, -0.45]} color="#4fa6dc" intensity={0.65} distance={1.4} />
+        <pointLight position={[0, -0.02, -0.45]} color="#4fa6dc" intensity={0.28} distance={1.2} />
       </group>
-      <group position={[3.4, 1.5, 8.15]}>
-        <mesh position={[0, 0.36, 0]} castShadow>
-          <sphereGeometry args={[0.11, 16, 12]} />
-          <meshStandardMaterial color="#b9794e" roughness={0.68} />
+      <group position={[5.05, 1.13, 7.62]} rotation={[-0.12, 0, 0]}>
+        <RoundedBox args={[0.58, 0.035, 0.21]} radius={0.003} smoothness={3} castShadow>
+          <meshStandardMaterial color="#2d333a" roughness={0.44} />
+        </RoundedBox>
+        {[-0.21, -0.105, 0, 0.105, 0.21].flatMap((x) => [-0.06, 0.015, 0.09].map((z) => (
+          <RoundedBox key={`${x}:${z}`} args={[0.07, 0.012, 0.042]} position={[x, 0.023, z]} radius={0.001} smoothness={2}>
+            <meshStandardMaterial color="#8d9398" roughness={0.55} />
+          </RoundedBox>
+        )))}
+      </group>
+      <group position={[4.28, 1.16, 7.65]} rotation={[0, -0.22, 0]}>
+        <RoundedBox args={[0.24, 0.07, 0.2]} radius={0.004} smoothness={3} castShadow>
+          <meshStandardMaterial color="#20262d" roughness={0.4} />
+        </RoundedBox>
+        <mesh position={[0, 0.041, -0.015]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[0.16, 0.085]} />
+          <meshBasicMaterial color="#e24646" />
         </mesh>
-        <RoundedBox args={[0.24, 0.52, 0.18]} radius={0.01} smoothness={4} castShadow>
-          <meshStandardMaterial color="#3461ad" roughness={0.7} />
+      </group>
+      <group position={[6.35, 1.18, 7.68]} rotation={[-0.18, 0.18, 0]}>
+        <RoundedBox args={[0.22, 0.1, 0.32]} radius={0.006} smoothness={4} castShadow>
+          <meshStandardMaterial color="#30373e" roughness={0.42} />
+        </RoundedBox>
+        <mesh position={[0, 0.052, -0.035]} rotation={[-Math.PI / 2, 0, 0]}>
+          <planeGeometry args={[0.145, 0.13]} />
+          <meshBasicMaterial color="#65c5a1" />
+        </mesh>
+      </group>
+      <group position={[3.63, 1.14, 7.82]}>
+        {[0, 1, 2, 3].map((index) => (
+          <RoundedBox key={index} args={[0.142, 0.014, 0.202]} position={[index * 0.032, index * 0.015, index * -0.008]} rotation={[0, -0.28 + index * 0.035, 0]} radius={0.0015} smoothness={3} castShadow>
+            <meshStandardMaterial color={["#162d59", "#641f2a", "#c5b381", "#253c31"][index]} roughness={0.48} />
+          </RoundedBox>
+        ))}
+      </group>
+      <group position={[3.38, 1.45, 7.73]} rotation={[0, Math.PI, -0.04]}>
+        <LabelPanel label="BE RIGHT BACK" accent="#ffd54c" width={0.95} />
+      </group>
+      <group position={[3.35, 0.6, 8.78]}>
+        <RoundedBox args={[0.52, 0.12, 0.52]} radius={0.018} smoothness={5} castShadow>
+          <meshStandardMaterial color="#243b67" roughness={0.68} />
+        </RoundedBox>
+        <RoundedBox args={[0.48, 0.64, 0.11]} position={[0, 0.37, 0.18]} rotation={[-0.12, 0, 0]} radius={0.025} smoothness={5} castShadow>
+          <meshStandardMaterial color="#2d4d83" roughness={0.72} />
         </RoundedBox>
       </group>
-      <group position={[4.7, 2.35, 7.52]} rotation={[0, 0, 0]}>
+      <group position={[5.15, 2.22, 11.015]} rotation={[0, Math.PI, 0]}>
+        <RoundedBox args={[1.65, 0.86, 0.04]} radius={0.012} smoothness={4} castShadow>
+          <meshStandardMaterial color="#8a623b" roughness={0.9} />
+        </RoundedBox>
+        <RoundedBox args={[1.52, 0.73, 0.018]} position={[0, 0, 0.027]} radius={0.005} smoothness={3}>
+          <meshStandardMaterial color="#bb9768" roughness={0.95} />
+        </RoundedBox>
+        {[
+          [-0.48, 0.14, "#f5e7ad"], [0.05, 0.17, "#d8e7f1"], [0.48, -0.12, "#f0c2bc"], [-0.25, -0.2, "#e9eddd"],
+        ].map(([x, y, color], index) => (
+          <group key={index} position={[x as number, y as number, 0.039]} rotation={[0, 0, (index - 1.5) * 0.035]}>
+            <mesh>
+              <planeGeometry args={[0.3, 0.24]} />
+              <meshStandardMaterial color={color as string} roughness={0.9} />
+            </mesh>
+            {[0.045, 0, -0.045].map((line) => (
+              <mesh key={line} position={[0, line, 0.001]}>
+                <planeGeometry args={[0.2, 0.012]} />
+                <meshBasicMaterial color="#75808b" />
+              </mesh>
+            ))}
+          </group>
+        ))}
+      </group>
+      <group position={[3.65, 2.5, 10.985]}>
+        <mesh rotation={[Math.PI / 2, 0, 0]} castShadow>
+          <cylinderGeometry args={[0.29, 0.29, 0.045, 32]} />
+          <meshStandardMaterial color="#eee8d8" roughness={0.58} />
+        </mesh>
+        <mesh position={[0, 0, -0.026]}>
+          <torusGeometry args={[0.255, 0.018, 8, 32]} />
+          <meshStandardMaterial color="#233a58" metalness={0.16} roughness={0.4} />
+        </mesh>
+        <RoundedBox args={[0.015, 0.17, 0.012]} position={[0, 0.07, -0.051]} rotation={[0, 0, -0.42]} radius={0.002} smoothness={3}>
+          <meshStandardMaterial color="#25313c" roughness={0.42} />
+        </RoundedBox>
+        <RoundedBox args={[0.014, 0.11, 0.012]} position={[0.04, -0.025, -0.052]} rotation={[0, 0, 0.85]} radius={0.002} smoothness={3}>
+          <meshStandardMaterial color="#c43f3f" roughness={0.4} />
+        </RoundedBox>
+      </group>
+      <group position={[4.7, 2.35, 7.52]} rotation={[0, Math.PI, 0]}>
         <LabelPanel label="CHECKOUT" accent="#ffd54c" width={1.8} />
       </group>
     </group>
   );
 }
 
+function PopcornMachine() {
+  const popcorn = [
+    [-0.2, -0.18], [-0.08, -0.2], [0.06, -0.18], [0.19, -0.19],
+    [-0.15, -0.08], [-0.02, -0.07], [0.12, -0.09], [0.22, -0.05],
+    [-0.19, 0.03], [-0.07, 0.05], [0.06, 0.02], [0.18, 0.06],
+  ];
+  return (
+    <group position={[-6.03, 1.46, 7.72]}>
+      <RoundedBox args={[0.68, 0.12, 0.5]} position={[0, -0.34, 0]} radius={0.008} smoothness={4} castShadow>
+        <meshStandardMaterial color="#b8282f" roughness={0.42} metalness={0.08} />
+      </RoundedBox>
+      <mesh position={[0, 0, 0]}>
+        <boxGeometry args={[0.62, 0.62, 0.44]} />
+        <meshPhysicalMaterial color="#d8eff1" transparent opacity={0.24} transmission={0.35} roughness={0.12} depthWrite={false} />
+      </mesh>
+      {[-0.29, 0.29].flatMap((x) => [-0.2, 0.2].map((z) => (
+        <RoundedBox key={`${x}:${z}`} args={[0.025, 0.68, 0.025]} position={[x, 0, z]} radius={0.004} smoothness={3} castShadow>
+          <meshStandardMaterial color="#c7a24d" metalness={0.32} roughness={0.34} />
+        </RoundedBox>
+      )))}
+      <RoundedBox args={[0.72, 0.1, 0.54]} position={[0, 0.36, 0]} radius={0.008} smoothness={4} castShadow>
+        <meshStandardMaterial color="#b8282f" roughness={0.42} metalness={0.08} />
+      </RoundedBox>
+      {popcorn.map(([x, z], index) => (
+        <mesh key={index} position={[x, -0.17 + (index % 3) * 0.045, z]} castShadow>
+          <sphereGeometry args={[0.055, 8, 6]} />
+          <meshStandardMaterial color={index % 4 === 0 ? "#f0ca58" : "#fff1b0"} roughness={0.82} />
+        </mesh>
+      ))}
+      <mesh position={[0, 0.37, -0.276]} rotation={[0, Math.PI, 0]}>
+        <planeGeometry args={[0.48, 0.07]} />
+        <meshBasicMaterial color="#ffe36a" />
+      </mesh>
+    </group>
+  );
+}
+
 function SnackArea() {
+  const bagColors = ["#e33f5e", "#f2b52e", "#42b98c", "#7e4ab6", "#ed722d", "#2d86c9"];
   return (
     <group name="snacks">
       <RoundedBox args={[3.5, 1.05, 0.72]} position={[-4.8, 0.53, 8.1]} radius={0.004} smoothness={4} castShadow>
-        <meshStandardMaterial color="#d9c59c" roughness={0.58} />
+        <meshStandardMaterial color="#ceb68a" roughness={0.58} />
       </RoundedBox>
-      {[-6, -5.4, -4.8, -4.2, -3.6].map((x, index) => (
-        <RoundedBox key={x} args={[0.22, 0.35, 0.05]} position={[x, 1.25 + (index % 2) * 0.012, 7.71]} rotation={[0, 0, (index - 2) * 0.012]} radius={0.002} smoothness={4} castShadow>
-          <meshStandardMaterial color={["#ee4466", "#ffcd4c", "#4ed1a1", "#965bce", "#f28a3b"][index]} roughness={0.48} />
+      {[-1.22, -0.4, 0.42, 1.24].map((offset) => (
+        <RoundedBox key={offset} args={[0.7, 0.77, 0.024]} position={[-4.8 + offset, 0.53, 7.728]} radius={0.002} smoothness={3} castShadow>
+          <meshStandardMaterial color="#dbc59e" roughness={0.66} />
         </RoundedBox>
       ))}
-      <group position={[-4.8, 2.05, 7.71]}>
+      {[1.07, 1.42, 1.77].map((y) => (
+        <RoundedBox key={y} args={[3.34, 0.035, 0.42]} position={[-4.8, y, 7.74]} radius={0.002} smoothness={3} castShadow>
+          <meshStandardMaterial color="#173f7d" roughness={0.38} metalness={0.08} />
+        </RoundedBox>
+      ))}
+      <PopcornMachine />
+      {[-5.42, -4.98, -4.54, -4.1, -3.66].flatMap((x, column) => [1.23, 1.58].map((y, row) => {
+        const color = bagColors[(column + row * 2) % bagColors.length];
+        return (
+          <group key={`${x}:${y}`} position={[x, y, 7.69]} rotation={[0, 0, (column - 2) * 0.012]}>
+            <RoundedBox args={[0.27, 0.29, 0.06]} radius={0.008} smoothness={4} castShadow>
+              <meshPhysicalMaterial color={color} roughness={0.44} clearcoat={0.16} clearcoatRoughness={0.35} />
+            </RoundedBox>
+            <mesh position={[0, 0.025, -0.032]} rotation={[0, Math.PI, 0]}>
+              <planeGeometry args={[0.18, 0.065]} />
+              <meshBasicMaterial color={row ? "#fff3b8" : "#f7f4ea"} />
+            </mesh>
+          </group>
+        );
+      }))}
+      {[-3.93, -3.68, -3.43].map((x, index) => (
+        <group key={x} position={[x, 1.91, 7.71]}>
+          <mesh castShadow>
+            <cylinderGeometry args={[0.065, 0.065, 0.24, 16]} />
+            <meshPhysicalMaterial color={["#d74343", "#3e9bd2", "#56b56c"][index]} metalness={0.18} roughness={0.34} clearcoat={0.4} />
+          </mesh>
+          <mesh position={[0, 0.125, 0]}>
+            <cylinderGeometry args={[0.052, 0.052, 0.008, 16]} />
+            <meshStandardMaterial color="#c3c6c7" metalness={0.72} roughness={0.28} />
+          </mesh>
+        </group>
+      ))}
+      <group position={[-4.8, 2.28, 7.66]} rotation={[0, Math.PI, 0]}>
         <LabelPanel label="MOVIE NIGHT SNACKS" accent="#ffcf49" width={1.8} />
       </group>
     </group>
@@ -700,7 +865,6 @@ export function StoreEnvironment({ entered }: { entered: boolean }) {
           key={`${x}:${z}`}
           position={[x, 3.38, z]}
           dead={x === 5.25 && z === 7.8}
-          flicker={x === -1.75 && z === -2.6}
         />
       )))}
       <CheckoutArea />

@@ -2,13 +2,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { RoundedBoxGeometry } from "three/addons/geometries/RoundedBoxGeometry.js";
-import { DVD_CASE_DEPTH, DVD_CASE_HEIGHT, DVD_CASE_WIDTH } from "./layout";
+import { DVD_CASE_DEPTH, DVD_CASE_HEIGHT, DVD_CASE_WIDTH, STORE_SECTIONS } from "./layout";
 import { usePosterTexture, usePosterTextureArray } from "./posterTextures";
 import type { InspectControls, StoreMedia } from "./types";
 
 const caseGeometry = new RoundedBoxGeometry(DVD_CASE_WIDTH, DVD_CASE_HEIGHT, DVD_CASE_DEPTH, 4, 0.0015);
 const heldCaseGeometry = new RoundedBoxGeometry(0.142, 0.202, 0.017, 4, 0.0018);
 const MAX_POSTERS_PER_BATCH = 128;
+const HOVER_CASE_OFFSET = 0.026;
+const HOVER_CASE_SCALE = 1.42;
 
 function createScratchNormalTexture() {
   const size = 128;
@@ -80,15 +82,11 @@ function createPosterArrayMaterial(texture: THREE.DataArrayTexture) {
       in float vPosterLayer;
       out vec4 posterOutput;
 
-      vec3 srgbToLinear(vec3 color) {
-        vec3 low = color / 12.92;
-        vec3 high = pow((color + 0.055) / 1.055, vec3(2.4));
-        return mix(low, high, step(vec3(0.04045), color));
-      }
-
       void main() {
         vec4 poster = texture(posterMap, vec3(vPosterUv, floor(vPosterLayer + 0.5)));
-        vec3 printedColor = srgbToLinear(poster.rgb) * vec3(0.82, 0.78, 0.72) * vPosterColor;
+        // This unlit display shader writes the already-sRGB poster directly.
+        // It keeps shelf art legible even when a case sits between fixtures.
+        vec3 printedColor = poster.rgb * vec3(1.06, 1.04, 1.0) * vPosterColor;
         posterOutput = vec4(printedColor, poster.a);
       }
     `,
@@ -117,7 +115,7 @@ function PosterBatch({ items, hoveredId, selectedId }: { items: StoreMedia[]; ho
       const selected = item.id === selectedId;
       const normalX = Math.sin(item.placement.rotationY);
       const normalZ = Math.cos(item.placement.rotationY);
-      const faceOffset = DVD_CASE_DEPTH / 2 + 0.00025 + (hovered ? 0.004 : 0);
+      const faceOffset = DVD_CASE_DEPTH / 2 + 0.00025 + (hovered ? HOVER_CASE_OFFSET : 0);
       position.set(
         item.placement.position[0] + normalX * faceOffset,
         item.placement.position[1],
@@ -125,10 +123,10 @@ function PosterBatch({ items, hoveredId, selectedId }: { items: StoreMedia[]; ho
       );
       euler.set(0, item.placement.rotationY, item.placement.rotationZ, "YXZ");
       quaternion.setFromEuler(euler);
-      scale.setScalar(selected ? 0.001 : item.placement.scale * (hovered ? 1.08 : 1));
+      scale.setScalar(selected ? 0.001 : item.placement.scale * (hovered ? HOVER_CASE_SCALE : 1));
       matrix.compose(position, quaternion, scale);
       ref.current!.setMatrixAt(index, matrix);
-      ref.current!.setColorAt(index, new THREE.Color(hovered ? "#fff0bd" : "#ffffff"));
+      ref.current!.setColorAt(index, new THREE.Color(hovered ? "#fff8e2" : "#ffffff"));
     });
     ref.current.count = items.length;
     ref.current.instanceMatrix.needsUpdate = true;
@@ -146,25 +144,7 @@ function PosterBatch({ items, hoveredId, selectedId }: { items: StoreMedia[]; ho
   );
 }
 
-function HoverCaseLight({ item }: { item: StoreMedia | null }) {
-  const ref = useRef<THREE.PointLight>(null);
-  useFrame((_, delta) => {
-    if (!ref.current) return;
-    const targetIntensity = item ? 0.32 : 0;
-    ref.current.intensity = THREE.MathUtils.damp(ref.current.intensity, targetIntensity, 14, delta);
-    if (!item) return;
-    const normalX = Math.sin(item.placement.rotationY);
-    const normalZ = Math.cos(item.placement.rotationY);
-    ref.current.position.set(
-      item.placement.position[0] + normalX * 0.18,
-      item.placement.position[1] + 0.03,
-      item.placement.position[2] + normalZ * 0.18,
-    );
-  });
-  return <pointLight ref={ref} color="#f7df9a" intensity={0} distance={0.85} decay={2} />;
-}
-
-function CaseBodies({ items, selectedId }: { items: StoreMedia[]; selectedId: string | null }) {
+function CaseBodies({ items, hoveredId, selectedId }: { items: StoreMedia[]; hoveredId: string | null; selectedId: string | null }) {
   const ref = useRef<THREE.InstancedMesh>(null);
   const matrix = useMemo(() => new THREE.Matrix4(), []);
   const quaternion = useMemo(() => new THREE.Quaternion(), []);
@@ -175,17 +155,23 @@ function CaseBodies({ items, selectedId }: { items: StoreMedia[]; selectedId: st
   useLayoutEffect(() => {
     if (!ref.current) return;
     items.forEach((item, index) => {
-      position.set(...item.placement.position);
+      const hovered = item.id === hoveredId;
+      const hoverOffset = hovered ? HOVER_CASE_OFFSET : 0;
+      position.set(
+        item.placement.position[0] + Math.sin(item.placement.rotationY) * hoverOffset,
+        item.placement.position[1],
+        item.placement.position[2] + Math.cos(item.placement.rotationY) * hoverOffset,
+      );
       euler.set(0, item.placement.rotationY, item.placement.rotationZ, "YXZ");
       quaternion.setFromEuler(euler);
-      scale.setScalar(item.id === selectedId ? 0.001 : item.placement.scale);
+      scale.setScalar(item.id === selectedId ? 0.001 : item.placement.scale * (hovered ? HOVER_CASE_SCALE : 1));
       matrix.compose(position, quaternion, scale);
       ref.current!.setMatrixAt(index, matrix);
     });
     ref.current.count = items.length;
     ref.current.instanceMatrix.needsUpdate = true;
     ref.current.computeBoundingSphere();
-  }, [euler, items, matrix, position, quaternion, scale, selectedId]);
+  }, [euler, hoveredId, items, matrix, position, quaternion, scale, selectedId]);
 
   return (
     <instancedMesh ref={ref} args={[undefined, undefined, items.length]} castShadow receiveShadow>
@@ -211,7 +197,7 @@ function CaseClearSleeves({ items, hoveredId, selectedId }: { items: StoreMedia[
       const selected = item.id === selectedId;
       const normalX = Math.sin(item.placement.rotationY);
       const normalZ = Math.cos(item.placement.rotationY);
-      const faceOffset = DVD_CASE_DEPTH / 2 + 0.00075 + (hovered ? 0.004 : 0);
+      const faceOffset = DVD_CASE_DEPTH / 2 + 0.00075 + (hovered ? HOVER_CASE_OFFSET : 0);
       position.set(
         item.placement.position[0] + normalX * faceOffset,
         item.placement.position[1],
@@ -219,7 +205,7 @@ function CaseClearSleeves({ items, hoveredId, selectedId }: { items: StoreMedia[
       );
       euler.set(0, item.placement.rotationY, item.placement.rotationZ, "YXZ");
       quaternion.setFromEuler(euler);
-      scale.setScalar(selected ? 0.001 : item.placement.scale * (hovered ? 1.08 : 1));
+      scale.setScalar(selected ? 0.001 : item.placement.scale * (hovered ? HOVER_CASE_SCALE : 1));
       matrix.compose(position, quaternion, scale);
       ref.current!.setMatrixAt(index, matrix);
     });
@@ -234,7 +220,7 @@ function CaseClearSleeves({ items, hoveredId, selectedId }: { items: StoreMedia[
       <meshPhysicalMaterial
         color="#eaf5ff"
         transparent
-        opacity={0.115}
+        opacity={0.055}
         depthWrite={false}
         roughness={0.12}
         metalness={0}
@@ -385,7 +371,7 @@ export function HeldCase({
 
   useFrame((_, delta) => {
     if (!group.current || !heldLight.current) return;
-    heldLight.current.intensity = THREE.MathUtils.damp(heldLight.current.intensity, item ? 2.4 : 0, 12, delta);
+    heldLight.current.intensity = THREE.MathUtils.damp(heldLight.current.intensity, item ? 0.2 : 0, 12, delta);
     if (!item) return;
     const controls = inspectControls.current;
     targetPosition.set(-0.22, -0.1, -controls.distance).applyQuaternion(camera.quaternion).add(camera.position);
@@ -418,13 +404,14 @@ export function HeldCase({
       <mesh position={[0, 0, 0.0086]} renderOrder={21}>
         <planeGeometry args={[0.128, 0.188]} />
         <meshStandardMaterial
+          key={texture.uuid}
           map={texture}
           color="#fffdf7"
           roughness={0.72}
           metalness={0}
           emissive="#ffffff"
           emissiveMap={texture}
-          emissiveIntensity={0.08}
+          emissiveIntensity={0.13}
           onBeforeCompile={applyHeldPosterPrintCorrection}
           customProgramCacheKey={() => "nextup-held-poster-print-v1"}
         />
@@ -475,21 +462,76 @@ export function HeldCase({
   );
 }
 
+function createDisplayCopies(items: StoreMedia[]) {
+  const newReleases = STORE_SECTIONS.find((section) => section.id === "new-releases");
+  if (!newReleases) return items;
+
+  const rearCopies = items
+    .filter((item) => item.placement.sectionId === "new-releases" || item.placement.sectionId === "reserved")
+    .map((item) => {
+      const section = STORE_SECTIONS.find((candidate) => candidate.id === item.placement.sectionId)!;
+      const position: typeof item.placement.position = [
+        item.placement.position[0],
+        item.placement.position[1],
+        section.center[2] - (item.placement.position[2] - section.center[2]),
+      ];
+      return {
+        ...item,
+        placement: {
+          ...item.placement,
+          position,
+          rotationY: Math.PI - item.placement.rotationY,
+          rotationZ: -item.placement.rotationZ,
+          aisle: `${section.department} · Rear face`,
+        },
+      };
+    });
+
+  const comingSoonCopies = items
+    .filter((item) => item.placement.sectionId === "new-releases" && item.posterUrl)
+    .slice(0, 12)
+    .map((item, index) => {
+      const column = index % 3;
+      const row = Math.floor(index / 3);
+      const position: typeof item.placement.position = [
+        4.85 + (column - 1) * 0.31,
+        0.43 + row * 0.32,
+        2.91,
+      ];
+      return {
+        ...item,
+        placement: {
+          ...item.placement,
+          position,
+          rotationY: 0,
+          rotationZ: (column - 1) * 0.01,
+          scale: 1.5,
+          sectionId: "coming-soon-display",
+          aisle: "Coming Soon · Feature tower",
+          shelf: `Preview row ${row + 1}`,
+          row,
+          column,
+        },
+      };
+    });
+
+  return [...items, ...rearCopies, ...comingSoonCopies];
+}
+
 export function MovieCases({ items, hoveredId, selectedId }: { items: StoreMedia[]; hoveredId: string | null; selectedId: string | null }) {
+  const renderItems = useMemo(() => createDisplayCopies(items), [items]);
   const batches = useMemo(() => {
     const next: StoreMedia[][] = [];
-    for (let index = 0; index < items.length; index += MAX_POSTERS_PER_BATCH) next.push(items.slice(index, index + MAX_POSTERS_PER_BATCH));
+    for (let index = 0; index < renderItems.length; index += MAX_POSTERS_PER_BATCH) next.push(renderItems.slice(index, index + MAX_POSTERS_PER_BATCH));
     return next;
-  }, [items]);
-  const hoveredItem = useMemo(() => items.find((item) => item.id === hoveredId) || null, [hoveredId, items]);
+  }, [renderItems]);
   return (
     <group name="poster-cases">
-      <CaseBodies items={items} selectedId={selectedId} />
+      <CaseBodies items={renderItems} hoveredId={hoveredId} selectedId={selectedId} />
       {batches.map((batch, index) => (
         <PosterBatch key={`${index}:${batch[0]?.id || "empty"}`} items={batch} hoveredId={hoveredId} selectedId={selectedId} />
       ))}
-      <CaseClearSleeves items={items} hoveredId={hoveredId} selectedId={selectedId} />
-      <HoverCaseLight item={hoveredItem} />
+      <CaseClearSleeves items={renderItems} hoveredId={hoveredId} selectedId={selectedId} />
     </group>
   );
 }

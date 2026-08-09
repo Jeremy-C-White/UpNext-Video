@@ -179,9 +179,11 @@ async function downloadPoster(url: string) {
     const liveEntry = textureCache.get(url);
     if (!liveEntry) return;
     lastTextureError = error instanceof Error ? error.message : String(error);
-    liveEntry.queued = false;
     liveEntry.abortController = undefined;
-    liveEntry.listeners.forEach((notify) => notify(placeholderTexture));
+    // Some Chromium/driver combinations expose createImageBitmap but reject
+    // its orientation/decode path for otherwise valid poster images. Fall back
+    // to the browser image loader instead of leaving the rental sleeve blank.
+    queueFallbackImage(url);
   }
 }
 
